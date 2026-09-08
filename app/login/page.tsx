@@ -105,7 +105,7 @@ export default function LoginPage() {
       if (res.requiresEmailConfirmation) {
         setSuccessMsg(
           res.message ||
-            'Workspace created! Please check your email to verify your address, then sign in.'
+          'Workspace created! Please check your email to verify your address, then sign in.'
         );
         setMode('signin');
       } else {
@@ -186,11 +186,10 @@ export default function LoginPage() {
               setErrorMsg('');
               setSuccessMsg('');
             }}
-            className={`flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-              mode === 'signin'
+            className={`flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${mode === 'signin'
                 ? 'bg-white text-black shadow-xs'
                 : 'text-neutral-400 hover:text-white'
-            }`}
+              }`}
           >
             <LogIn className="size-3.5" />
             Sign In
@@ -202,11 +201,10 @@ export default function LoginPage() {
               setErrorMsg('');
               setSuccessMsg('');
             }}
-            className={`flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
-              mode === 'signup'
+            className={`flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer ${mode === 'signup'
                 ? 'bg-white text-black shadow-xs'
                 : 'text-neutral-400 hover:text-white'
-            }`}
+              }`}
           >
             <Crown className="size-3.5 text-amber-400" />
             Owner Sign Up
@@ -311,9 +309,7 @@ export default function LoginPage() {
             {/* Multi-tenant Isolation Callout */}
             <div className="p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-[11px] text-indigo-300 flex items-start gap-2">
               <Crown className="size-3.5 text-indigo-400 shrink-0 mt-0.5" />
-              <span>
-                <strong>Owner Workspace</strong>: You will have full ownership over your team and leads. Your data is isolated and kept completely private from other owners.
-              </span>
+
             </div>
 
             <div className="space-y-1.5">
