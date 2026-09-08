@@ -1,0 +1,628 @@
+import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase';
+import { Lead, TeamMember, CRMStats, LeadStatus, LeadActivity, ScheduledMeetingItem } from '@/types/crm';
+
+const LOCAL_TEAMS_KEY = 'aischoolapp_crm_teams';
+const LOCAL_LEADS_KEY = 'aischoolapp_crm_leads';
+const LOCAL_ACTIVITIES_KEY = 'aischoolapp_crm_activities';
+
+// Auto-detect if Supabase table has owner_id column
+let supportsOwnerIdInDb: boolean | null = null;
+
+// LocalStorage helpers for fallback / multi-tenant workspace storage
+function getLocalTeams(ownerId?: string): TeamMember[] {
+  if (typeof window === 'undefined') return [];
+  const key = ownerId ? `${LOCAL_TEAMS_KEY}_${ownerId}` : LOCAL_TEAMS_KEY;
+  const stored = localStorage.getItem(key);
+  if (!stored) {
+    return [];
+  }
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalTeams(teams: TeamMember[], ownerId?: string) {
+  if (typeof window !== 'undefined') {
+    const key = ownerId ? `${LOCAL_TEAMS_KEY}_${ownerId}` : LOCAL_TEAMS_KEY;
+    localStorage.setItem(key, JSON.stringify(teams));
+  }
+}
+
+function getLocalLeads(ownerId?: string): Lead[] {
+  if (typeof window === 'undefined') return [];
+  const key = ownerId ? `${LOCAL_LEADS_KEY}_${ownerId}` : LOCAL_LEADS_KEY;
+  const stored = localStorage.getItem(key);
+  if (!stored) {
+    return [];
+  }
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalLeads(leads: Lead[], ownerId?: string) {
+  if (typeof window !== 'undefined') {
+    const key = ownerId ? `${LOCAL_LEADS_KEY}_${ownerId}` : LOCAL_LEADS_KEY;
+    localStorage.setItem(key, JSON.stringify(leads));
+  }
+}
+
+function getLocalActivities(ownerId?: string): LeadActivity[] {
+  if (typeof window === 'undefined') return [];
+  const key = ownerId ? `${LOCAL_ACTIVITIES_KEY}_${ownerId}` : LOCAL_ACTIVITIES_KEY;
+  const stored = localStorage.getItem(key);
+  if (!stored) {
+    return [];
+  }
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalActivities(activities: LeadActivity[], ownerId?: string) {
+  if (typeof window !== 'undefined') {
+    const key = ownerId ? `${LOCAL_ACTIVITIES_KEY}_${ownerId}` : LOCAL_ACTIVITIES_KEY;
+    localStorage.setItem(key, JSON.stringify(activities));
+  }
+}
+
+export const crmService = {
+  // Check backend status
+  isUsingSupabase(): boolean {
+    return isSupabaseConfigured();
+  },
+
+  // -------------------------------------------------------------
+  // TEAM MEMBERS (Scoped to Owner Workspace with graceful fallback)
+  // -------------------------------------------------------------
+  async getTeamMembers(ownerId?: string): Promise<TeamMember[]> {
+    const client = getSupabaseClient();
+    if (client) {
+      // 1. Try querying with owner_id if column exists
+      if (supportsOwnerIdInDb !== false && ownerId) {
+        const { data, error } = await client
+          .from('team_members')
+          .select('*, leads:leads(count)')
+          .or(`owner_id.eq.${ownerId},user_id.eq.${ownerId}`)
+          .order('name', { ascending: true });
+
+        if (!error) {
+          supportsOwnerIdInDb = true;
+          return (data || []).map((m: any) => ({
+            ...m,
+            assigned_leads_count: Array.isArray(m.leads) ? m.leads[0]?.count || 0 : 0,
+          }));
+        }
+
+        // Code 42703 means column owner_id does not exist in Supabase yet
+        if (error.code === '42703') {
+          supportsOwnerIdInDb = false;
+        }
+      }
+
+      // 2. Fallback query (if owner_id column is not added in Supabase yet)
+      let query = client
+        .from('team_members')
+        .select('*, leads:leads(count)');
+
+      if (ownerId) {
+        query = query.eq('user_id', ownerId);
+      }
+
+      const { data: fbData, error: fbError } = await query.order('name', { ascending: true });
+
+      if (!fbError && fbData && fbData.length > 0) {
+        return fbData.map((m: any) => ({
+          ...m,
+          assigned_leads_count: Array.isArray(m.leads) ? m.leads[0]?.count || 0 : 0,
+        }));
+      }
+
+      // If user_id didn't match, return all team members from Supabase
+      const { data: allTeams, error: allErr } = await client
+        .from('team_members')
+        .select('*, leads:leads(count)')
+        .order('name', { ascending: true });
+
+      if (!allErr && allTeams) {
+        return allTeams.map((m: any) => ({
+          ...m,
+          assigned_leads_count: Array.isArray(m.leads) ? m.leads[0]?.count || 0 : 0,
+        }));
+      }
+
+      return getLocalTeams(ownerId);
+    }
+
+    // Local fallback
+    const teams = getLocalTeams(ownerId);
+    const leads = getLocalLeads(ownerId);
+    return teams.map((team) => ({
+      ...team,
+      assigned_leads_count: leads.filter((l) => l.assigned_to === team.id).length,
+    }));
+  },
+
+  async createTeamMember(
+    member: Omit<TeamMember, 'id' | 'created_at' | 'updated_at' | 'assigned_leads_count'>,
+    ownerId?: string
+  ): Promise<TeamMember> {
+    const client = getSupabaseClient();
+    const payload = ownerId && supportsOwnerIdInDb !== false ? { ...member, owner_id: ownerId } : member;
+
+    if (client) {
+      let res = await client
+        .from('team_members')
+        .insert([payload])
+        .select()
+        .single();
+
+      // If owner_id column doesn't exist, retry without it
+      if (res.error && res.error.code === '42703') {
+        supportsOwnerIdInDb = false;
+        res = await client
+          .from('team_members')
+          .insert([member])
+          .select()
+          .single();
+      }
+
+      if (res.error) {
+        throw new Error(res.error.message);
+      }
+      return res.data;
+    }
+
+    // Local fallback
+    const teams = getLocalTeams(ownerId);
+    const newMember: TeamMember = {
+      ...payload,
+      id: 'local-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+      created_at: new Date().toISOString(),
+      assigned_leads_count: 0,
+    };
+    teams.push(newMember);
+    saveLocalTeams(teams, ownerId);
+    return newMember;
+  },
+
+  async updateTeamMember(id: string, updates: Partial<TeamMember>, ownerId?: string): Promise<TeamMember> {
+    const client = getSupabaseClient();
+    if (client) {
+      const { data, error } = await client
+        .from('team_members')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        throw new Error(error.message);
+      }
+      return data;
+    }
+
+    // Local fallback
+    const teams = getLocalTeams(ownerId);
+    const index = teams.findIndex((t) => t.id === id);
+    if (index === -1) throw new Error('Team member not found');
+    teams[index] = { ...teams[index], ...updates, updated_at: new Date().toISOString() };
+    saveLocalTeams(teams, ownerId);
+    return teams[index];
+  },
+
+  attachNextMeetings(leads: Lead[], activities: LeadActivity[]): Lead[] {
+    const meetingMap = new Map<string, LeadActivity>();
+    const sortedMeetings = activities
+      .filter((a) => a.type === 'meeting' && a.scheduled_at && a.outcome !== 'Completed' && a.outcome !== 'Cancelled')
+      .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
+
+    for (const meeting of sortedMeetings) {
+      if (!meetingMap.has(meeting.lead_id)) {
+        meetingMap.set(meeting.lead_id, meeting);
+      }
+    }
+
+    return leads.map((l) => ({
+      ...l,
+      next_meeting: meetingMap.get(l.id) || null,
+    }));
+  },
+
+  // -------------------------------------------------------------
+  // LEADS (Scoped to Owner Workspace with graceful fallback)
+  // -------------------------------------------------------------
+  async getLeads(ownerId?: string): Promise<Lead[]> {
+    const client = getSupabaseClient();
+    if (client) {
+      let data: any[] | null = null;
+      let leadsError: any = null;
+
+      // 1. Try querying with owner_id if column exists
+      if (supportsOwnerIdInDb !== false && ownerId) {
+        const res = await client
+          .from('leads')
+          .select('*, assigned_member:team_members(*)')
+          .eq('owner_id', ownerId)
+          .order('created_at', { ascending: false });
+
+        if (!res.error) {
+          supportsOwnerIdInDb = true;
+          data = res.data;
+        } else if (res.error.code === '42703') {
+          supportsOwnerIdInDb = false;
+        } else {
+          leadsError = res.error;
+        }
+      }
+
+      // 2. Fallback query if owner_id column does not exist in Supabase yet
+      if (data === null && !leadsError) {
+        const res = await client
+          .from('leads')
+          .select('*, assigned_member:team_members(*)')
+          .order('created_at', { ascending: false });
+
+        if (!res.error) {
+          data = res.data;
+        } else {
+          leadsError = res.error;
+        }
+      }
+
+      if (leadsError) {
+        console.error('Error fetching leads from Supabase:', leadsError);
+        return this.getLocalLeadsWithAssignees(ownerId);
+      }
+
+      const leadsList: Lead[] = data || [];
+      if (leadsList.length === 0) {
+        return [];
+      }
+
+      const leadIds = leadsList.map((l) => l.id);
+
+      const { data: activitiesData } = await client
+        .from('lead_activities')
+        .select('*')
+        .in('lead_id', leadIds)
+        .eq('type', 'meeting')
+        .not('scheduled_at', 'is', null)
+        .neq('outcome', 'Completed')
+        .order('scheduled_at', { ascending: true });
+
+      return this.attachNextMeetings(leadsList, activitiesData || []);
+    }
+
+    const localLeads = this.getLocalLeadsWithAssignees(ownerId);
+    const localActs = getLocalActivities(ownerId);
+    return this.attachNextMeetings(localLeads, localActs);
+  },
+
+  getLocalLeadsWithAssignees(ownerId?: string): Lead[] {
+    const leads = getLocalLeads(ownerId);
+    const teams = getLocalTeams(ownerId);
+    const teamMap = new Map(teams.map((t) => [t.id, t]));
+
+    return leads.map((lead) => ({
+      ...lead,
+      assigned_member: lead.assigned_to ? teamMap.get(lead.assigned_to) || null : null,
+    }));
+  },
+
+  async createLead(
+    lead: Omit<Lead, 'id' | 'created_at' | 'updated_at' | 'assigned_member'>,
+    ownerId?: string
+  ): Promise<Lead> {
+    const client = getSupabaseClient();
+    const payload = ownerId && supportsOwnerIdInDb !== false ? { ...lead, owner_id: ownerId } : lead;
+
+    if (client) {
+      let res = await client
+        .from('leads')
+        .insert([payload])
+        .select('*, assigned_member:team_members(*)')
+        .single();
+
+      // If owner_id column does not exist, retry without it
+      if (res.error && res.error.code === '42703') {
+        supportsOwnerIdInDb = false;
+        res = await client
+          .from('leads')
+          .insert([lead])
+          .select('*, assigned_member:team_members(*)')
+          .single();
+      }
+
+      if (res.error) {
+        throw new Error(res.error.message);
+      }
+      return res.data;
+    }
+
+    // Local fallback
+    const leads = getLocalLeads(ownerId);
+    const newLead: Lead = {
+      ...payload,
+      id: 'local-lead-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    leads.unshift(newLead);
+    saveLocalLeads(leads, ownerId);
+
+    const teams = getLocalTeams(ownerId);
+    return {
+      ...newLead,
+      assigned_member: newLead.assigned_to
+        ? teams.find((t) => t.id === newLead.assigned_to) || null
+        : null,
+    };
+  },
+
+  async updateLead(id: string, updates: Partial<Lead>, ownerId?: string): Promise<Lead> {
+    const client = getSupabaseClient();
+    const { assigned_member, ...fieldsToUpdate } = updates;
+
+    if (client) {
+      const { data, error } = await client
+        .from('leads')
+        .update(fieldsToUpdate)
+        .eq('id', id)
+        .select('*, assigned_member:team_members(*)')
+        .single();
+
+      if (error) {
+        throw new Error(error.message);
+      }
+      return data;
+    }
+
+    // Local fallback
+    const leads = getLocalLeads(ownerId);
+    const index = leads.findIndex((l) => l.id === id);
+    if (index === -1) throw new Error('Lead not found');
+
+    leads[index] = {
+      ...leads[index],
+      ...fieldsToUpdate,
+      updated_at: new Date().toISOString(),
+    };
+    saveLocalLeads(leads, ownerId);
+
+    const teams = getLocalTeams(ownerId);
+    return {
+      ...leads[index],
+      assigned_member: leads[index].assigned_to
+        ? teams.find((t) => t.id === leads[index].assigned_to) || null
+        : null,
+    };
+  },
+
+  async assignLead(leadId: string, teamMemberId: string | null, ownerId?: string): Promise<Lead> {
+    return this.updateLead(leadId, { assigned_to: teamMemberId }, ownerId);
+  },
+
+  async updateLeadStatus(leadId: string, status: LeadStatus, ownerId?: string): Promise<Lead> {
+    return this.updateLead(leadId, { status }, ownerId);
+  },
+
+  async deleteLead(id: string, ownerId?: string): Promise<void> {
+    const client = getSupabaseClient();
+    if (client) {
+      const { error } = await client.from('leads').delete().eq('id', id);
+      if (error) throw new Error(error.message);
+      return;
+    }
+
+    // Local fallback
+    const leads = getLocalLeads(ownerId);
+    const filtered = leads.filter((l) => l.id !== id);
+    saveLocalLeads(filtered, ownerId);
+  },
+
+  async getLeadById(id: string, ownerId?: string): Promise<Lead | null> {
+    const client = getSupabaseClient();
+    if (client) {
+      const { data, error } = await client
+        .from('leads')
+        .select('*, assigned_member:team_members(*)')
+        .eq('id', id)
+        .single();
+
+      if (error) {
+        console.error('Error fetching lead by id:', error);
+        return this.getLocalLeadById(id, ownerId);
+      }
+      return data;
+    }
+    return this.getLocalLeadById(id, ownerId);
+  },
+
+  getLocalLeadById(id: string, ownerId?: string): Lead | null {
+    const leads = this.getLocalLeadsWithAssignees(ownerId);
+    return leads.find((l) => l.id === id) || null;
+  },
+
+  // -------------------------------------------------------------
+  // ACTIVITIES & CALL/MSG LOGS
+  // -------------------------------------------------------------
+  async getLeadActivities(leadId: string, ownerId?: string): Promise<LeadActivity[]> {
+    const client = getSupabaseClient();
+    if (client) {
+      const { data, error } = await client
+        .from('lead_activities')
+        .select('*')
+        .eq('lead_id', leadId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching activities:', error);
+        return getLocalActivities(ownerId).filter((a) => a.lead_id === leadId);
+      }
+      return data || [];
+    }
+
+    const all = getLocalActivities(ownerId);
+    return all.filter((a) => a.lead_id === leadId).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  },
+
+  async createActivity(
+    activity: Omit<LeadActivity, 'id' | 'created_at'>,
+    ownerId?: string
+  ): Promise<LeadActivity> {
+    const client = getSupabaseClient();
+    if (client) {
+      const { data, error } = await client
+        .from('lead_activities')
+        .insert([activity])
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error creating activity:', error);
+        throw new Error(error.message);
+      }
+      return data;
+    }
+
+    // Local fallback
+    const all = getLocalActivities(ownerId);
+    const newAct: LeadActivity = {
+      ...activity,
+      id: 'act-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+      created_at: new Date().toISOString(),
+    };
+    all.unshift(newAct);
+    saveLocalActivities(all, ownerId);
+    return newAct;
+  },
+
+  async updateActivity(id: string, updates: Partial<LeadActivity>, ownerId?: string): Promise<LeadActivity> {
+    const client = getSupabaseClient();
+    if (client) {
+      const { data, error } = await client
+        .from('lead_activities')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error updating activity:', error);
+        throw new Error(error.message);
+      }
+      return data;
+    }
+
+    const all = getLocalActivities(ownerId);
+    const idx = all.findIndex((a) => a.id === id);
+    if (idx !== -1) {
+      all[idx] = { ...all[idx], ...updates };
+      saveLocalActivities(all, ownerId);
+      return all[idx];
+    }
+    throw new Error('Activity not found');
+  },
+
+  async scheduleMeeting(
+    params: {
+      lead_id: string;
+      title: string;
+      scheduled_at: string;
+      meeting_link?: string;
+      description?: string;
+      performed_by?: string;
+    },
+    ownerId?: string
+  ): Promise<LeadActivity> {
+    return this.createActivity(
+      {
+        lead_id: params.lead_id,
+        type: 'meeting',
+        title: params.title,
+        description: params.description || 'Demo / Discussion meeting scheduled.',
+        outcome: 'Scheduled',
+        scheduled_at: params.scheduled_at,
+        meeting_link: params.meeting_link || null,
+        performed_by: params.performed_by || 'Representative',
+      },
+      ownerId
+    );
+  },
+
+  async getUpcomingMeetings(ownerId?: string): Promise<ScheduledMeetingItem[]> {
+    const leads = await this.getLeads(ownerId);
+    const leadMap = new Map(leads.map((l) => [l.id, l]));
+
+    if (leads.length === 0) {
+      return [];
+    }
+
+    const leadIds = leads.map((l) => l.id);
+    const client = getSupabaseClient();
+
+    if (client) {
+      const { data, error } = await client
+        .from('lead_activities')
+        .select('*')
+        .in('lead_id', leadIds)
+        .eq('type', 'meeting')
+        .not('scheduled_at', 'is', null)
+        .order('scheduled_at', { ascending: true });
+
+      if (!error && data) {
+        return data.map((act) => ({
+          ...act,
+          lead: leadMap.get(act.lead_id),
+        }));
+      }
+    }
+
+    // Local fallback
+    const all = getLocalActivities(ownerId);
+    return all
+      .filter((a) => a.type === 'meeting' && a.scheduled_at && leadMap.has(a.lead_id))
+      .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())
+      .map((act) => ({
+        ...act,
+        lead: leadMap.get(act.lead_id),
+      }));
+  },
+
+  // -------------------------------------------------------------
+  // DASHBOARD STATS (Scoped to Owner Workspace)
+  // -------------------------------------------------------------
+  async getCRMStats(ownerId?: string): Promise<CRMStats> {
+    const leads = await this.getLeads(ownerId);
+    const totalLeads = leads.length;
+    const newLeads = leads.filter((l) => l.status === 'New').length;
+    const inProgressLeads = leads.filter(
+      (l) => l.status === 'In Progress' || l.status === 'Contacted' || l.status === 'Proposal Sent'
+    ).length;
+    const wonLeads = leads.filter((l) => l.status === 'Won').length;
+    const unassignedLeads = leads.filter((l) => !l.assigned_to).length;
+
+    const pipelineValue = leads
+      .filter((l) => l.status !== 'Lost')
+      .reduce((sum, l) => sum + (Number(l.deal_value) || 0), 0);
+
+    const conversionRate = totalLeads > 0 ? Math.round((wonLeads / totalLeads) * 100) : 0;
+
+    return {
+      totalLeads,
+      newLeads,
+      inProgressLeads,
+      wonLeads,
+      unassignedLeads,
+      pipelineValue,
+      conversionRate,
+    };
+  },
+};
