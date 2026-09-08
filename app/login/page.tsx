@@ -125,8 +125,8 @@ export default function LoginPage() {
     <div className="min-h-screen w-full bg-[#000000] flex flex-col items-center justify-center p-4 sm:p-6 text-white selection:bg-white selection:text-black">
       {/* Brand Header */}
       <div className="text-center space-y-2 mb-6 max-w-md w-full">
-        <div className="size-12 rounded-full bg-white text-black font-bold flex items-center justify-center mx-auto shadow-lg mb-2">
-          <Building2 className="size-6" />
+        <div className="size-16 rounded-2xl overflow-hidden mx-auto shadow-2xl mb-3 border border-white/15 ring-2 ring-white/10">
+          <img src="/app-icon.jpg" alt="AI School Admissions CRM" className="size-full object-cover" />
         </div>
         <div className="inline-flex items-center justify-center gap-1.5 px-3 py-1 rounded-full bg-white/5 border border-white/8 text-[11px] font-semibold uppercase tracking-widest text-neutral-300">
           <Sparkles className="size-3 text-indigo-400" />

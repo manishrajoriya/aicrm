@@ -35,17 +35,45 @@ export default function TeamPage() {
   }, [profile?.owner_id]);
 
   const handleSaveMember = async (formData: any) => {
-    if (!isOwner) return;
+    if (!isOwner) return null;
     const ownerId = profile?.owner_id;
+    let res: any = null;
     if (selectedMember) {
-      await crmService.updateTeamMember(selectedMember.id, formData, ownerId);
+      res = await crmService.updateTeamMember(selectedMember.id, formData, ownerId);
     } else {
-      await crmService.createTeamMember(
+      res = await crmService.createTeamMember(
         { ...formData, organization_name: profile?.organization },
         ownerId
       );
     }
     await loadTeam();
+    return res;
+  };
+
+  const handleDeleteMember = async (memberOrId: TeamMember | string) => {
+    if (!isOwner) return;
+    const memberId = typeof memberOrId === 'string' ? memberOrId : memberOrId.id;
+    const member = teamMembers.find((m) => m.id === memberId);
+
+    if (member?.is_owner || member?.user_id === profile?.id || memberId === profile?.team_member_id) {
+      alert('The workspace Owner account cannot be deleted.');
+      return;
+    }
+
+    const name = member?.name || 'this team member';
+    if (!confirm(`Are you sure you want to delete ${name}? Any school leads assigned to them will become unassigned.`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await crmService.deleteTeamMember(memberId, profile?.owner_id);
+      await loadTeam();
+    } catch (err: any) {
+      alert('Failed to delete team member: ' + (err.message || 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleToggleStatus = async (member: TeamMember) => {
@@ -175,6 +203,7 @@ export default function TeamPage() {
                 setDialogOpen(true);
               }}
               onToggleStatus={handleToggleStatus}
+              onDelete={handleDeleteMember}
             />
           ))}
         </div>
@@ -186,6 +215,7 @@ export default function TeamPage() {
         onOpenChange={setDialogOpen}
         member={selectedMember}
         onSave={handleSaveMember}
+        onDelete={handleDeleteMember}
       />
     </div>
   );

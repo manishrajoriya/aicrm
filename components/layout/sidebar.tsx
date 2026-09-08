@@ -66,8 +66,8 @@ export function Sidebar() {
             <Menu className="size-4" />
           </button>
           <div className="flex items-center gap-2">
-            <div className="size-7 rounded-full bg-white text-black font-bold flex items-center justify-center text-xs shadow-sm">
-              <Building2 className="size-3.5" />
+            <div className="size-8 rounded-lg overflow-hidden border border-white/10 shadow-sm shrink-0">
+              <img src="/app-icon.jpg" alt="AI School CRM" className="size-full object-cover" />
             </div>
             <span className="font-semibold text-xs tracking-tight text-white">AI School CRM</span>
           </div>
@@ -99,8 +99,8 @@ export function Sidebar() {
           {/* Brand */}
           <div className="p-5 border-b border-white/6 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="size-9 rounded-full bg-white text-black font-bold flex items-center justify-center text-sm shadow-md">
-                <Building2 className="size-4.5" />
+              <div className="size-10 rounded-xl overflow-hidden border border-white/15 shadow-md shrink-0">
+                <img src="/app-icon.jpg" alt="AI School CRM" className="size-full object-cover" />
               </div>
               <div>
                 <h1 className="font-semibold text-sm tracking-tight text-white flex items-center gap-1.5">

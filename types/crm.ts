@@ -56,9 +56,22 @@ export interface TeamMember {
   is_owner?: boolean;
   status: 'active' | 'inactive';
   avatar_url?: string | null;
+  password?: string;
   created_at?: string;
   updated_at?: string;
   assigned_leads_count?: number;
+}
+
+export interface TeamMemberCreationResult {
+  member: TeamMember;
+  authCreated: boolean;
+  authMessage?: string;
+  credentials?: {
+    email: string;
+    password?: string;
+    role: TeamRole;
+    name: string;
+  };
 }
 
 export interface Lead {

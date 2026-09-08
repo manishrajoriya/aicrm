@@ -2,7 +2,7 @@
 
 import { TeamMember } from '@/types/crm';
 import { Button } from '@/components/ui/button';
-import { Mail, Phone, Edit2, Briefcase } from 'lucide-react';
+import { Mail, Phone, Edit2, Briefcase, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -10,9 +10,10 @@ interface MemberCardProps {
   member: TeamMember;
   onEdit: (member: TeamMember) => void;
   onToggleStatus: (member: TeamMember) => void;
+  onDelete?: (member: TeamMember) => void;
 }
 
-export function MemberCard({ member, onEdit, onToggleStatus }: MemberCardProps) {
+export function MemberCard({ member, onEdit, onToggleStatus, onDelete }: MemberCardProps) {
   const { isOwner } = useAuth();
 
   return (
@@ -94,15 +95,29 @@ export function MemberCard({ member, onEdit, onToggleStatus }: MemberCardProps) 
         </Link>
 
         {isOwner && (
-          <Button
-            variant="outline"
-            size="xs"
-            onClick={() => onEdit(member)}
-            className="rounded-full border border-white/10 text-neutral-300 hover:text-white"
-          >
-            <Edit2 className="size-3 mr-1" />
-            Edit
-          </Button>
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => onEdit(member)}
+              className="rounded-full border border-white/10 text-neutral-300 hover:text-white"
+            >
+              <Edit2 className="size-3 mr-1" />
+              Edit
+            </Button>
+            {!member.is_owner && onDelete && (
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={() => onDelete(member)}
+                className="rounded-full border border-white/10 text-neutral-400 hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/10 transition-colors"
+                title="Remove team member"
+              >
+                <Trash2 className="size-3 mr-1" />
+                Delete
+              </Button>
+            )}
+          </div>
         )}
       </div>
     </div>

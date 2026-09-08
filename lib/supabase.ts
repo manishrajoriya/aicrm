@@ -35,3 +35,22 @@ export const getSupabaseClient = (): SupabaseClient | null => {
 
   return clientInstance;
 };
+
+/**
+ * Creates an unauthenticated, non-persisting client.
+ * Essential for creating team member auth accounts without overriding
+ * or interfering with the logged-in owner's active session.
+ */
+export const createEphemeralClient = (): SupabaseClient | null => {
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+
+  return createClient(supabaseUrl!, supabaseKey!, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  });
+};

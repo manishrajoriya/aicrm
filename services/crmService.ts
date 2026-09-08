@@ -1,4 +1,4 @@
-import { getSupabaseClient, isSupabaseConfigured } from '@/lib/supabase';
+import { getSupabaseClient, isSupabaseConfigured, createEphemeralClient } from '@/lib/supabase';
 import { Lead, TeamMember, CRMStats, LeadStatus, LeadActivity, ScheduledMeetingItem } from '@/types/crm';
 
 const LOCAL_TEAMS_KEY = 'aischoolapp_crm_teams';
@@ -150,11 +150,67 @@ export const crmService = {
   },
 
   async createTeamMember(
-    member: Omit<TeamMember, 'id' | 'created_at' | 'updated_at' | 'assigned_leads_count'>,
+    member: Omit<TeamMember, 'id' | 'created_at' | 'updated_at' | 'assigned_leads_count'> & { password?: string },
     ownerId?: string
-  ): Promise<TeamMember> {
+  ): Promise<TeamMember & { authCreated?: boolean; authMessage?: string; generatedPassword?: string }> {
     const client = getSupabaseClient();
-    const payload = ownerId && supportsOwnerIdInDb !== false ? { ...member, owner_id: ownerId } : member;
+    const cleanEmail = member.email.trim().toLowerCase();
+    const cleanPassword = member.password?.trim();
+
+    let authUserId: string | null = null;
+    let authCreated = false;
+    let authMessage: string | undefined = undefined;
+
+    // 1. Create a real Supabase Auth login account via Ephemeral Client
+    // This uses persistSession: false to ensure the logged-in owner is never signed out!
+    if (isSupabaseConfigured() && cleanPassword) {
+      try {
+        const ephemeralClient = createEphemeralClient();
+        if (ephemeralClient) {
+          const { data: authData, error: authError } = await ephemeralClient.auth.signUp({
+            email: cleanEmail,
+            password: cleanPassword,
+            options: {
+              data: {
+                name: member.name,
+                role: member.role,
+                owner_id: ownerId || null,
+                is_owner: false,
+                organization: member.organization_name || '',
+              },
+            },
+          });
+
+          if (authError) {
+            console.warn('Supabase auth.signUp note for team member:', authError.message);
+            authMessage = authError.message;
+          } else if (authData?.user) {
+            authUserId = authData.user.id;
+            authCreated = true;
+          }
+        }
+      } catch (authErr: any) {
+        console.warn('Unexpected error in ephemeral signUp:', authErr);
+        authMessage = authErr?.message;
+      }
+    }
+
+    // Strip password field before inserting into public.team_members
+    const { password, ...memberFields } = member;
+
+    const basePayload: any = {
+      ...memberFields,
+      email: cleanEmail,
+      is_owner: false,
+    };
+
+    if (authUserId) {
+      basePayload.user_id = authUserId;
+    }
+
+    const payload = ownerId && supportsOwnerIdInDb !== false 
+      ? { ...basePayload, owner_id: ownerId } 
+      : basePayload;
 
     if (client) {
       let res = await client
@@ -163,12 +219,14 @@ export const crmService = {
         .select()
         .single();
 
-      // If owner_id column doesn't exist, retry without it
+      // If owner_id or other column does not exist yet, retry gracefully
       if (res.error && res.error.code === '42703') {
         supportsOwnerIdInDb = false;
+        const retryPayload = { ...basePayload };
+        delete retryPayload.owner_id;
         res = await client
           .from('team_members')
-          .insert([member])
+          .insert([retryPayload])
           .select()
           .single();
       }
@@ -176,7 +234,13 @@ export const crmService = {
       if (res.error) {
         throw new Error(res.error.message);
       }
-      return res.data;
+
+      return {
+        ...res.data,
+        authCreated,
+        authMessage,
+        generatedPassword: cleanPassword,
+      };
     }
 
     // Local fallback
@@ -189,7 +253,12 @@ export const crmService = {
     };
     teams.push(newMember);
     saveLocalTeams(teams, ownerId);
-    return newMember;
+    return {
+      ...newMember,
+      authCreated: true,
+      authMessage: 'Saved to local workspace',
+      generatedPassword: cleanPassword,
+    };
   },
 
   async updateTeamMember(id: string, updates: Partial<TeamMember>, ownerId?: string): Promise<TeamMember> {
@@ -215,6 +284,46 @@ export const crmService = {
     teams[index] = { ...teams[index], ...updates, updated_at: new Date().toISOString() };
     saveLocalTeams(teams, ownerId);
     return teams[index];
+  },
+
+  async deleteTeamMember(id: string, ownerId?: string): Promise<void> {
+    const client = getSupabaseClient();
+    if (client) {
+      // 1. Unassign any leads currently assigned to this member so they aren't orphaned
+      await client
+        .from('leads')
+        .update({ assigned_to: null })
+        .eq('assigned_to', id);
+
+      // 2. Delete the team member record
+      const { error } = await client
+        .from('team_members')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+      return;
+    }
+
+    // Local fallback
+    const teams = getLocalTeams(ownerId);
+    const filtered = teams.filter((t) => t.id !== id);
+    saveLocalTeams(filtered, ownerId);
+
+    // Unassign in local leads
+    const leads = getLocalLeads(ownerId);
+    let changed = false;
+    leads.forEach((l) => {
+      if (l.assigned_to === id) {
+        l.assigned_to = undefined;
+        changed = true;
+      }
+    });
+    if (changed) {
+      saveLocalLeads(leads, ownerId);
+    }
   },
 
   attachNextMeetings(leads: Lead[], activities: LeadActivity[]): Lead[] {

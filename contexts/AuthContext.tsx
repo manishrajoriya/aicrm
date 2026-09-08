@@ -44,20 +44,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       (meta.role as TeamRole) ||
       'Sales Executive';
 
-    const is_owner = Boolean(
-      memberData?.is_owner ||
-      role === 'Admin' ||
-      role === 'Manager' ||
-      meta.is_owner
-    );
+    let is_owner = false;
+    if (memberData && typeof memberData.is_owner === 'boolean') {
+      is_owner = memberData.is_owner;
+    } else if (meta && typeof meta.is_owner === 'boolean') {
+      is_owner = meta.is_owner;
+    } else {
+      is_owner = role === 'Admin' || role === 'Manager';
+    }
 
     const name =
       memberData?.name ||
       meta.name ||
       (user?.email ? user.email.split('@')[0] : 'Team Member');
 
-    // For an owner, owner_id defaults to their user.id; for invited staff, it comes from memberData.owner_id
-    const owner_id = memberData?.owner_id || (is_owner ? user.id : user.id);
+    // For an owner, owner_id defaults to their user.id; for invited staff, it comes from memberData.owner_id or meta.owner_id
+    const owner_id = memberData?.owner_id || meta.owner_id || (is_owner ? user.id : user.id);
     const organization = memberData?.organization_name || meta.organization || '';
 
     return {
@@ -84,11 +86,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           } = await client.auth.getSession();
 
           if (session?.user) {
-            const { data: memberData } = await client
+            let { data: memberData } = await client
               .from('team_members')
               .select('*')
               .or(`user_id.eq.${session.user.id},email.eq.${session.user.email}`)
               .maybeSingle();
+
+            // Link user_id if member was created by owner prior to staff first sign-in
+            if (memberData && !memberData.user_id) {
+              await client
+                .from('team_members')
+                .update({ user_id: session.user.id })
+                .eq('id', memberData.id);
+              memberData = { ...memberData, user_id: session.user.id };
+            }
 
             const userProfile = buildProfile(session.user, memberData);
             setProfile(userProfile);
@@ -136,11 +147,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             event === 'USER_UPDATED'
           ) {
             try {
-              const { data: memberData } = await client
+              let { data: memberData } = await client
                 .from('team_members')
                 .select('*')
                 .or(`user_id.eq.${session.user.id},email.eq.${session.user.email}`)
                 .maybeSingle();
+
+              if (memberData && !memberData.user_id) {
+                await client
+                  .from('team_members')
+                  .update({ user_id: session.user.id })
+                  .eq('id', memberData.id);
+                memberData = { ...memberData, user_id: session.user.id };
+              }
 
               const userProfile = buildProfile(session.user, memberData);
               setProfile(userProfile);

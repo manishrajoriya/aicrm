@@ -17,6 +17,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: 'AI School App CRM - Leads & Team Management',
   description: 'Minimal, powerful dark mode CRM for admissions and school growth teams.',
+  manifest: '/manifest.json',
+  icons: {
+    icon: '/icon.png',
+    apple: '/icon.png',
+  },
 };
 
 export default function RootLayout({
