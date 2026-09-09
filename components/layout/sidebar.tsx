@@ -21,6 +21,8 @@ import { useState, useEffect } from 'react';
 import { crmService } from '@/services/crmService';
 import { useAuth } from '@/contexts/AuthContext';
 
+import { NotificationBell } from '@/components/layout/notification-bell';
+
 export function Sidebar() {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
@@ -73,12 +75,15 @@ export function Sidebar() {
           </div>
         </div>
 
-        {profile && (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#161619] border border-white/8 text-[11px] text-zinc-300">
-            <span className="size-2 rounded-full bg-emerald-500" />
-            <span className="max-w-[100px] truncate font-medium">{profile.name.split(' ')[0]}</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <NotificationBell />
+          {profile && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#161619] border border-white/8 text-[11px] text-zinc-300">
+              <span className="size-2 rounded-full bg-emerald-500" />
+              <span className="max-w-[100px] truncate font-medium">{profile.name.split(' ')[0]}</span>
+            </div>
+          )}
+        </div>
       </header>
 
       {/* Backdrop */}
@@ -172,14 +177,17 @@ export function Sidebar() {
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={logout}
-                className="size-7 rounded-full bg-[#18181c] hover:bg-red-500/20 text-neutral-400 hover:text-red-400 flex items-center justify-center transition-colors shrink-0"
-                title="Sign Out"
-              >
-                <LogOut className="size-3.5" />
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                <NotificationBell />
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="size-7 rounded-full bg-[#18181c] hover:bg-red-500/20 text-neutral-400 hover:text-red-400 flex items-center justify-center transition-colors shrink-0"
+                  title="Sign Out"
+                >
+                  <LogOut className="size-3.5" />
+                </button>
+              </div>
             </div>
           )}
 

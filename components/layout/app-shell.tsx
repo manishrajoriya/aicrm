@@ -2,6 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import { Sidebar } from '@/components/layout/sidebar';
+import { MeetingReminderBanner } from '@/components/leads/meeting-reminder-banner';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -21,6 +22,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <main className="flex-1 lg:pl-64 min-h-screen flex flex-col w-full max-w-full bg-[#000000]">
         {children}
       </main>
+      <MeetingReminderBanner />
     </div>
   );
 }
+

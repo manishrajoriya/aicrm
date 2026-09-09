@@ -40,6 +40,7 @@ export function ScheduleMeetingDialog({
   const [time, setTime] = useState('11:00');
   const [platform, setPlatform] = useState('Google Meet');
   const [meetingLink, setMeetingLink] = useState('');
+  const [minutesBefore, setMinutesBefore] = useState('10');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -60,6 +61,7 @@ export function ScheduleMeetingDialog({
       setTime('11:00');
       setTitle('ERP Live Demo');
       setMeetingLink('');
+      setMinutesBefore('10');
     }
   }, [open, preselectedLeadId, leads]);
 
@@ -99,7 +101,7 @@ export function ScheduleMeetingDialog({
       setSubmitting(true);
       const scheduledDateTime = new Date(`${date}T${time}:00`).toISOString();
 
-      await crmService.scheduleMeeting({
+      const activity = await crmService.scheduleMeeting({
         lead_id: selectedLeadId,
         title: title || 'Quick Meeting Reminder',
         scheduled_at: scheduledDateTime,
@@ -107,6 +109,26 @@ export function ScheduleMeetingDialog({
         description: `${platform} meeting reminder.`,
         performed_by: profile?.name || 'Staff',
       });
+
+      // Schedule background Push Notification
+      try {
+        await fetch('/api/notifications/schedule-meeting', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: profile?.id,
+            leadId: selectedLeadId,
+            organization: selectedLead?.organization || 'School',
+            contactName: selectedLead?.name || 'Lead',
+            title: title || 'Scheduled Meeting',
+            scheduledAt: scheduledDateTime,
+            minutesBefore: Number(minutesBefore),
+            meetingLink: meetingLink.trim() || undefined,
+          }),
+        });
+      } catch (pushErr) {
+        console.warn('Could not schedule push notification:', pushErr);
+      }
 
       if (selectedLead && (selectedLead.status === 'New' || selectedLead.status === 'Contacted')) {
         await crmService.updateLeadStatus(selectedLeadId, 'In Progress');
@@ -264,6 +286,29 @@ export function ScheduleMeetingDialog({
               </div>
             )}
           </div>
+
+          {/* Push Notification Reminder Setting */}
+          <div className="space-y-1 pt-0.5">
+            <div className="flex items-center justify-between">
+              <Label className="text-[11px] font-medium text-zinc-400 flex items-center gap-1">
+                <Bell className="size-3 text-indigo-400" />
+                Push Notification Reminder
+              </Label>
+            </div>
+            <Select value={minutesBefore} onValueChange={(val) => val && setMinutesBefore(val)}>
+              <SelectTrigger className="bg-[#18181c] border-white/10 rounded-xl h-9 text-white text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-[#18181c] border-white/10 text-white rounded-xl">
+                <SelectItem value="5" className="text-xs">5 minutes before</SelectItem>
+                <SelectItem value="10" className="text-xs">10 minutes before (Recommended)</SelectItem>
+                <SelectItem value="15" className="text-xs">15 minutes before</SelectItem>
+                <SelectItem value="30" className="text-xs">30 minutes before</SelectItem>
+                <SelectItem value="0" className="text-xs">At meeting start time</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
 
           <DialogFooter className="pt-2 flex-row justify-end gap-2 sm:justify-end">
             <Button
