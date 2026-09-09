@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { Bell, BellRing, BellOff, Check, AlertCircle } from 'lucide-react';
+import { Bell, BellRing, BellOff, Check, AlertCircle, ArrowRight } from 'lucide-react';
 import { usePushNotification } from '@/hooks/usePushNotification';
+import Link from 'next/link';
 
 export function NotificationBell() {
   const { isConfigured, isSupported, permission, isSubscribed, loading, requestPermission } =
@@ -88,6 +89,17 @@ export function NotificationBell() {
               {requesting ? 'Requesting...' : 'Turn On Notifications'}
             </button>
           )}
+
+          <div className="mt-2.5 pt-2 border-t border-white/5 flex items-center justify-between">
+            <Link
+              href="/notifications"
+              onClick={() => setShowTooltip(false)}
+              className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1 transition-colors"
+            >
+              <span>View Notification History</span>
+              <ArrowRight className="size-3" />
+            </Link>
+          </div>
 
           {!isConfigured && (
             <div className="mt-2 pt-2 border-t border-white/5 text-[10px] text-zinc-500 flex items-center gap-1">

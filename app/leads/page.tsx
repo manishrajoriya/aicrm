@@ -9,6 +9,9 @@ import { LeadKanban } from '@/components/leads/lead-kanban';
 import { LeadDialog } from '@/components/leads/lead-dialog';
 import { AssignDialog } from '@/components/leads/assign-dialog';
 import { ScheduleMeetingDialog } from '@/components/leads/schedule-meeting-dialog';
+import { LogActivityDialog } from '@/components/leads/log-activity-dialog';
+import { LeadLogsDialog } from '@/components/leads/lead-logs-dialog';
+import { ImportLeadsDialog } from '@/components/leads/import-leads-dialog';
 import {
   LeadFilters,
   LeadFiltersState,
@@ -16,7 +19,7 @@ import {
   NextMeetingFilterType,
   SortByType,
 } from '@/components/leads/lead-filters';
-import { Plus, LayoutGrid, List, RefreshCw, Sparkles, UserCheck, Calendar } from 'lucide-react';
+import { Plus, LayoutGrid, List, RefreshCw, Sparkles, UserCheck, Calendar, PlusCircle, FileSpreadsheet } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 const DEFAULT_FILTERS: LeadFiltersState = {
@@ -41,7 +44,12 @@ export default function LeadsPage() {
   const [leadDialogOpen, setLeadDialogOpen] = useState(false);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
+  const [logDialogOpen, setLogDialogOpen] = useState(false);
+  const [logsDialogOpen, setLogsDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const [leadForLog, setLeadForLog] = useState<Lead | null>(null);
+  const [leadForViewLogs, setLeadForViewLogs] = useState<Lead | null>(null);
 
   const loadData = async () => {
     try {
@@ -73,6 +81,12 @@ export default function LeadsPage() {
     } else {
       await crmService.createLead(formData, ownerId);
     }
+    await loadData();
+  };
+
+  const handleBulkImportLeads = async (newLeads: any[]) => {
+    const ownerId = profile?.owner_id;
+    await crmService.createMultipleLeads(newLeads, ownerId);
     await loadData();
   };
 
@@ -223,6 +237,21 @@ export default function LeadsPage() {
     setScheduleDialogOpen(true);
   };
 
+  const handleOpenLogDialog = (lead?: Lead) => {
+    setLeadForLog(lead || null);
+    setLogDialogOpen(true);
+  };
+
+  const handleOpenViewLogs = (lead: Lead) => {
+    setLeadForViewLogs(lead);
+    setLogsDialogOpen(true);
+  };
+
+  const handleSaveActivity = async (activityData: any) => {
+    await crmService.createActivity(activityData, profile?.owner_id);
+    await loadData();
+  };
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 sm:space-y-8 max-w-7xl mx-auto w-full text-neutral-100">
       {/* Header & Controls */}
@@ -319,6 +348,28 @@ export default function LeadsPage() {
           </Button>
 
           <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => handleOpenLogDialog()}
+            className="rounded-full bg-[#222226] text-neutral-200 hover:bg-[#2c2c32] hover:text-white px-4 border border-white/5 flex items-center gap-1.5"
+            title="Directly add interaction log or notes"
+          >
+            <PlusCircle className="size-3.5 text-blue-400" />
+            Add Log
+          </Button>
+
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setImportDialogOpen(true)}
+            className="rounded-full bg-[#222226] text-neutral-200 hover:bg-[#2c2c32] hover:text-white px-4 border border-emerald-500/20 hover:border-emerald-500/40 flex items-center gap-1.5"
+            title="Upload multiple leads from Excel (.xlsx, .xls, .csv)"
+          >
+            <FileSpreadsheet className="size-3.5 text-emerald-400" />
+            Import Excel
+          </Button>
+
+          <Button
             size="sm"
             onClick={() => {
               setSelectedLead(null);
@@ -357,6 +408,8 @@ export default function LeadsPage() {
           onDeleteLead={handleDeleteLead}
           onStatusChange={handleStatusChange}
           onScheduleMeeting={handleOpenScheduleDialog}
+          onLogActivity={handleOpenLogDialog}
+          onViewLogs={handleOpenViewLogs}
         />
       ) : (
         <LeadKanban
@@ -372,6 +425,8 @@ export default function LeadsPage() {
           }}
           onStatusChange={handleStatusChange}
           onScheduleMeeting={handleOpenScheduleDialog}
+          onLogActivity={handleOpenLogDialog}
+          onViewLogs={handleOpenViewLogs}
         />
       )}
 
@@ -382,6 +437,7 @@ export default function LeadsPage() {
         lead={selectedLead}
         teamMembers={teamMembers}
         onSave={handleSaveLead}
+        onOpenImportExcel={() => setImportDialogOpen(true)}
       />
 
       <AssignDialog
@@ -401,6 +457,36 @@ export default function LeadsPage() {
         leads={leads}
         preselectedLeadId={selectedLead?.id}
         onMeetingScheduled={loadData}
+      />
+
+      <LogActivityDialog
+        open={logDialogOpen}
+        onOpenChange={(open) => {
+          setLogDialogOpen(open);
+          if (!open) setLeadForLog(null);
+        }}
+        leadId={leadForLog?.id}
+        leadName={leadForLog?.organization || leadForLog?.name}
+        leads={leads}
+        performedBy={profile?.name || 'Representative'}
+        onSave={handleSaveActivity}
+      />
+
+      <LeadLogsDialog
+        open={logsDialogOpen}
+        onOpenChange={(open) => {
+          setLogsDialogOpen(open);
+          if (!open) setLeadForViewLogs(null);
+        }}
+        lead={leadForViewLogs}
+        onAddLog={handleOpenLogDialog}
+      />
+
+      <ImportLeadsDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        teamMembers={teamMembers}
+        onImportLeads={handleBulkImportLeads}
       />
     </div>
   );

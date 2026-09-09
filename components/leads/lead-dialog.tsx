@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { FileSpreadsheet } from 'lucide-react';
 
 interface LeadDialogProps {
   open: boolean;
@@ -21,6 +22,7 @@ interface LeadDialogProps {
   lead?: Lead | null;
   teamMembers: TeamMember[];
   onSave: (data: any) => Promise<void>;
+  onOpenImportExcel?: () => void;
 }
 
 export function LeadDialog({
@@ -29,6 +31,7 @@ export function LeadDialog({
   lead,
   teamMembers,
   onSave,
+  onOpenImportExcel,
 }: LeadDialogProps) {
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -112,6 +115,25 @@ export function LeadDialog({
               : 'Log an inquiry and allocate to an active admissions specialist.'}
           </DialogDescription>
         </DialogHeader>
+
+        {!lead && onOpenImportExcel && (
+          <div className="flex items-center justify-between p-3 rounded-2xl bg-emerald-950/20 border border-emerald-500/25 text-xs text-neutral-300">
+            <div className="flex items-center gap-2">
+              <FileSpreadsheet className="size-4 text-emerald-400 shrink-0" />
+              <span>Need to add multiple leads at once?</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onOpenChange(false);
+                onOpenImportExcel();
+              }}
+              className="text-emerald-400 hover:text-emerald-300 font-semibold underline underline-offset-2 shrink-0 ml-2 cursor-pointer"
+            >
+              Upload via Excel
+            </button>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4 py-2">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

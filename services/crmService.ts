@@ -475,6 +475,60 @@ export const crmService = {
     };
   },
 
+  async createMultipleLeads(
+    leadsList: Omit<Lead, 'id' | 'created_at' | 'updated_at' | 'assigned_member'>[],
+    ownerId?: string
+  ): Promise<Lead[]> {
+    if (!leadsList || leadsList.length === 0) return [];
+    const client = getSupabaseClient();
+    const payloads = leadsList.map((l) =>
+      ownerId && supportsOwnerIdInDb !== false ? { ...l, owner_id: ownerId } : l
+    );
+
+    if (client) {
+      let res = await client
+        .from('leads')
+        .insert(payloads)
+        .select('*, assigned_member:team_members(*)');
+
+      if (res.error && res.error.code === '42703') {
+        supportsOwnerIdInDb = false;
+        res = await client
+          .from('leads')
+          .insert(leadsList)
+          .select('*, assigned_member:team_members(*)');
+      }
+
+      if (res.error) {
+        throw new Error(res.error.message);
+      }
+      return res.data || [];
+    }
+
+    // Local fallback
+    const leads = getLocalLeads(ownerId);
+    const teams = getLocalTeams(ownerId);
+    const teamMap = new Map(teams.map((t) => [t.id, t]));
+
+    const inserted: Lead[] = payloads.map((payload) => {
+      const newLead: Lead = {
+        ...payload,
+        id: 'local-lead-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      return newLead;
+    });
+
+    leads.unshift(...inserted);
+    saveLocalLeads(leads, ownerId);
+
+    return inserted.map((l) => ({
+      ...l,
+      assigned_member: l.assigned_to ? teamMap.get(l.assigned_to) || null : null,
+    }));
+  },
+
   async updateLead(id: string, updates: Partial<Lead>, ownerId?: string): Promise<Lead> {
     const client = getSupabaseClient();
     const { assigned_member, ...fieldsToUpdate } = updates;

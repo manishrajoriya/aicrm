@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 
 export default function LoginPage() {
-  const { loginWithPassword, signUpWithPassword, profile, logout } = useAuth();
+  const { loginWithPassword, signUpWithPassword, profile, logout, loading: authLoading } = useAuth();
   const router = useRouter();
 
   // Mode: 'signin' | 'signup'
@@ -45,6 +45,13 @@ export default function LoginPage() {
 
   const hasSupabase = isSupabaseConfigured();
 
+  // Automatically open dashboard directly if user is already logged in
+  useEffect(() => {
+    if (!authLoading && profile) {
+      router.replace('/');
+    }
+  }, [authLoading, profile, router]);
+
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || !password) {
@@ -63,7 +70,7 @@ export default function LoginPage() {
         return;
       }
 
-      router.push('/');
+      router.replace('/');
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to sign in. Please check your credentials.');
     } finally {
@@ -111,7 +118,7 @@ export default function LoginPage() {
       } else {
         setSuccessMsg('Workspace created successfully! Redirecting to your dashboard...');
         setTimeout(() => {
-          router.push('/');
+          router.replace('/');
         }, 800);
       }
     } catch (err: any) {
@@ -120,6 +127,32 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
+  // If user is already logged in, show instant greeting and open dashboard directly
+  if (profile) {
+    return (
+      <div className="min-h-screen w-full bg-[#000000] flex flex-col items-center justify-center p-4 text-white">
+        <div className="flex flex-col items-center gap-4 text-center max-w-sm">
+          <div className="size-16 rounded-2xl overflow-hidden shadow-2xl border border-white/15 ring-2 ring-white/10 animate-pulse">
+            <img src="/app-icon.jpg" alt="AI School Admissions CRM" className="size-full object-cover" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-white">Opening Dashboard...</h2>
+            <p className="text-xs text-neutral-400 mt-1">
+              Logged in as <strong className="text-white">{profile.name}</strong>{profile.organization ? ` (${profile.organization})` : ''}
+            </p>
+          </div>
+          <Button
+            size="sm"
+            onClick={() => router.replace('/')}
+            className="rounded-full bg-white text-black font-semibold hover:bg-neutral-200 text-xs px-4 cursor-pointer mt-2"
+          >
+            Go to Dashboard
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen w-full bg-[#000000] flex flex-col items-center justify-center p-4 sm:p-6 text-white selection:bg-white selection:text-black">
@@ -141,39 +174,6 @@ export default function LoginPage() {
             : 'Register your independent school CRM workspace. Your data is 100% private.'}
         </p>
       </div>
-
-      {/* Already Logged In Notice */}
-      {profile && (
-        <div className="w-full max-w-md mb-4 p-3.5 rounded-2xl border border-white/10 bg-[#121215] flex items-center justify-between gap-3 text-xs shadow-md">
-          <div className="flex items-center gap-2 overflow-hidden">
-            <div className="size-7 rounded-full bg-white text-black font-bold flex items-center justify-center text-[10px] shrink-0">
-              {profile.name.charAt(0)}
-            </div>
-            <div className="truncate">
-              <span className="text-neutral-400">Logged in as </span>
-              <strong className="text-white font-medium">{profile.name}</strong>
-              <span className="text-neutral-500 text-[11px]"> ({profile.organization || 'Workspace'})</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <Button
-              size="xs"
-              onClick={() => router.push('/')}
-              className="rounded-full bg-white text-black font-semibold hover:bg-neutral-200 text-[11px] h-7 px-3 cursor-pointer"
-            >
-              Dashboard
-            </Button>
-            <button
-              type="button"
-              onClick={logout}
-              className="p-1.5 rounded-full hover:bg-red-500/20 text-neutral-400 hover:text-red-400 transition-colors cursor-pointer"
-              title="Sign Out"
-            >
-              <LogOut className="size-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Main Authentication Card */}
       <div className="w-full max-w-md rounded-3xl border border-white/8 bg-[#121215] p-6 sm:p-7 shadow-2xl space-y-5">

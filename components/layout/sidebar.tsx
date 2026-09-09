@@ -16,6 +16,7 @@ import {
   LogOut,
   Shield,
   User,
+  Bell,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { crmService } from '@/services/crmService';
@@ -47,6 +48,11 @@ export function Sidebar() {
       label: isOwner ? 'Leads Pipeline' : 'My Leads & Pipeline',
       href: '/leads',
       icon: Users2,
+    },
+    {
+      label: 'Notifications',
+      href: '/notifications',
+      icon: Bell,
     },
     {
       label: 'Team Members',

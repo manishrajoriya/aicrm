@@ -11,6 +11,7 @@ import { LogActivityDialog } from '@/components/leads/log-activity-dialog';
 import { ScheduleMeetingDialog } from '@/components/leads/schedule-meeting-dialog';
 import { LeadDialog } from '@/components/leads/lead-dialog';
 import { AssignDialog } from '@/components/leads/assign-dialog';
+import { QuickContactLoggerDialog } from '@/components/leads/quick-contact-logger-dialog';
 import {
   Building2,
   Phone,
@@ -47,6 +48,8 @@ export default function LeadDetailPage() {
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+  const [quickContactOpen, setQuickContactOpen] = useState(false);
+  const [quickContactType, setQuickContactType] = useState<'call' | 'whatsapp'>('call');
 
   // Timeline type filter
   const [timelineFilter, setTimelineFilter] = useState<'all' | ActivityType>('all');
@@ -79,56 +82,69 @@ export default function LeadDetailPage() {
     return phoneStr.replace(/[^0-9]/g, '');
   };
 
-  // AUTO-LOG: When user clicks Call
-  const handleInitiateCall = async () => {
+  // When user clicks Call: Open dialer and show instant outcome logger
+  const handleInitiateCall = () => {
     if (!lead) return;
-    const cleanNum = getCleanPhone(lead.phone);
-    // Open tel dialer
     window.location.href = `tel:${lead.phone}`;
-
-    // Auto-record activity log
-    try {
-      await crmService.createActivity({
-        lead_id: lead.id,
-        type: 'call',
-        title: 'Outgoing Phone Call',
-        description: `Placed outgoing phone call to ${lead.phone} (${lead.name}).`,
-        outcome: 'Call Initiated',
-        performed_by: profile?.name || 'Representative',
-      });
-      // Refresh activities
-      const updated = await crmService.getLeadActivities(lead.id);
-      setActivities(updated);
-    } catch (err) {
-      console.error('Failed to auto-log call:', err);
-    }
+    setQuickContactType('call');
+    setQuickContactOpen(true);
   };
 
-  // AUTO-LOG: When user clicks WhatsApp
-  const handleInitiateWhatsApp = async () => {
+  // When user clicks WhatsApp: Open WhatsApp chat and show instant outcome logger
+  const handleInitiateWhatsApp = () => {
     if (!lead) return;
     let cleanNum = getCleanPhone(lead.phone);
     if (!cleanNum.startsWith('91') && cleanNum.length === 10) {
       cleanNum = '91' + cleanNum;
     }
-    // Open WhatsApp Web/App
-    window.open(`https://wa.me/${cleanNum}?text=Hello%20${encodeURIComponent(lead.name)},%20regarding%20${encodeURIComponent(lead.organization)}%20admissions%20solution:`, '_blank');
+    window.open(
+      `https://wa.me/${cleanNum}?text=Hello%20${encodeURIComponent(lead.name)},%20regarding%20${encodeURIComponent(lead.organization)}%20admissions%20solution:`,
+      '_blank'
+    );
+    setQuickContactType('whatsapp');
+    setQuickContactOpen(true);
+  };
 
-    // Auto-record activity log
+  const handleSaveQuickContact = async (data: {
+    type: 'call' | 'whatsapp';
+    title: string;
+    outcome: string;
+    description: string;
+    newStatus?: LeadStatus;
+  }) => {
+    if (!lead) return;
+
     try {
-      await crmService.createActivity({
-        lead_id: lead.id,
-        type: 'whatsapp',
-        title: 'WhatsApp Conversation Started',
-        description: `Initiated direct WhatsApp messaging with ${lead.name} at ${lead.phone}.`,
-        outcome: 'Chat Opened',
-        performed_by: profile?.name || 'Representative',
-      });
-      // Refresh activities
-      const updated = await crmService.getLeadActivities(lead.id);
-      setActivities(updated);
-    } catch (err) {
-      console.error('Failed to auto-log WhatsApp interaction:', err);
+      await crmService.createActivity(
+        {
+          lead_id: lead.id,
+          type: data.type,
+          title: data.title,
+          outcome: data.outcome,
+          description: data.description,
+          performed_by: profile?.name || 'Representative',
+        },
+        profile?.owner_id
+      );
+
+      if (data.newStatus && data.newStatus !== lead.status) {
+        await crmService.updateLeadStatus(lead.id, data.newStatus, profile?.owner_id);
+        await crmService.createActivity(
+          {
+            lead_id: lead.id,
+            type: 'status_change',
+            title: `Stage Moved to "${data.newStatus}"`,
+            description: `Pipeline stage moved to "${data.newStatus}" following ${data.type === 'call' ? 'phone call' : 'WhatsApp conversation'}.`,
+            performed_by: profile?.name || 'Representative',
+          },
+          profile?.owner_id
+        );
+      }
+
+      await loadData();
+    } catch (err: any) {
+      console.error('Failed to record contact outcome:', err);
+      alert('Error saving contact log: ' + (err.message || 'Unknown error'));
     }
   };
 
@@ -558,6 +574,17 @@ export default function LeadDetailPage() {
         teamMembers={teamMembers}
         onAssign={handleAssign}
       />
+
+      {lead && (
+        <QuickContactLoggerDialog
+          open={quickContactOpen}
+          onOpenChange={setQuickContactOpen}
+          type={quickContactType}
+          lead={lead}
+          performedBy={profile?.name || 'Representative'}
+          onSave={handleSaveQuickContact}
+        />
+      )}
     </div>
   );
 }

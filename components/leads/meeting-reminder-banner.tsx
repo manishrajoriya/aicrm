@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { crmService } from '@/services/crmService';
 import { ScheduledMeetingItem } from '@/types/crm';
 import { useAuth } from '@/contexts/AuthContext';
-import { Video, Clock, X, ExternalLink, BellRing, Sparkles } from 'lucide-react';
+import { Video, Clock, X, ExternalLink, BellRing, Sparkles, Phone, MessageCircle } from 'lucide-react';
 import Link from 'next/link';
 
 // Soft audio chime using Web Audio API (Zero external mp3 dependencies)
@@ -105,9 +105,63 @@ export function MeetingReminderBanner() {
 
   const { meeting, minutesLeft } = activeAlert;
   const leadName = meeting.lead?.organization || meeting.lead?.name || 'School Lead';
-  const meetingUrl = meeting.meeting_link || `/leads/${meeting.lead_id}`;
-
+  const leadPhone = meeting.lead?.phone || '';
   const isNow = minutesLeft <= 0;
+
+  const handleCall = async (e: React.MouseEvent) => {
+    if (!leadPhone) {
+      e.preventDefault();
+      alert('No phone number available for this lead.');
+      return;
+    }
+    try {
+      await crmService.createActivity(
+        {
+          lead_id: meeting.lead_id,
+          type: 'call',
+          title: 'Meeting Follow-up Call',
+          description: `Initiated call to ${meeting.lead?.name || 'lead'} (${leadPhone}) for meeting: ${meeting.title || 'ERP Demo'}`,
+          outcome: 'Call Initiated',
+          performed_by: profile?.name || 'Staff',
+        },
+        profile?.owner_id
+      );
+    } catch (err) {
+      console.error('Failed to log call activity:', err);
+    }
+  };
+
+  const handleWhatsApp = async () => {
+    if (!leadPhone) {
+      alert('No phone number available for this lead.');
+      return;
+    }
+
+    let clean = leadPhone.replace(/[^0-9]/g, '');
+    if (!clean.startsWith('91') && clean.length === 10) clean = '91' + clean;
+
+    const schoolName = meeting.lead?.organization || 'your school';
+    const contactName = meeting.lead?.name || '';
+    const text = `Hello ${contactName ? contactName + ', ' : ''}regarding our scheduled meeting for ${schoolName}: ${meeting.title || 'ERP Live Demo'}`;
+
+    window.open(`https://wa.me/${clean}?text=${encodeURIComponent(text)}`, '_blank');
+
+    try {
+      await crmService.createActivity(
+        {
+          lead_id: meeting.lead_id,
+          type: 'whatsapp',
+          title: 'Meeting WhatsApp Sent',
+          description: `Sent WhatsApp to ${contactName || 'lead'} (${leadPhone}) for meeting: ${meeting.title || 'ERP Demo'}`,
+          outcome: 'Chat Opened',
+          performed_by: profile?.name || 'Staff',
+        },
+        profile?.owner_id
+      );
+    } catch (err) {
+      console.error('Failed to log whatsapp activity:', err);
+    }
+  };
 
   return (
     <div className="fixed bottom-5 right-5 z-50 max-w-md w-[calc(100vw-40px)] animate-in slide-in-from-bottom-5 duration-300">
@@ -140,6 +194,7 @@ export function MeetingReminderBanner() {
               </h4>
               <p className="text-xs text-zinc-300 truncate">
                 {meeting.title || 'Scheduled Demo / Meeting'}
+                {leadPhone ? ` • ${leadPhone}` : ''}
               </p>
             </div>
           </div>
@@ -154,22 +209,48 @@ export function MeetingReminderBanner() {
           </button>
         </div>
 
-        {/* Action Buttons */}
+        {/* Action Buttons: Call, WhatsApp, Join Video (if link exists), View Lead */}
         <div className="mt-3.5 flex items-center gap-2 pt-2 border-t border-white/8">
-          <Link
-            href={meetingUrl}
-            target={meeting.meeting_link ? '_blank' : undefined}
-            rel="noreferrer"
-            className="flex-1 py-2 px-3.5 rounded-xl bg-white hover:bg-zinc-200 text-black font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shadow-md active:scale-95"
+          {/* Call Button */}
+          <a
+            href={leadPhone ? `tel:${leadPhone}` : '#'}
+            onClick={handleCall}
+            className="flex-1 py-2 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer"
+            title={leadPhone ? `Call ${leadPhone}` : 'No phone number available'}
           >
-            <Video className="size-3.5" />
-            <span>{meeting.meeting_link ? 'Join Meeting Call' : 'Open Lead Details'}</span>
-            {meeting.meeting_link && <ExternalLink className="size-3 ml-0.5 text-zinc-600" />}
-          </Link>
+            <Phone className="size-3.5 text-emerald-400" />
+            <span>Call</span>
+          </a>
 
+          {/* WhatsApp Button */}
+          <button
+            type="button"
+            onClick={handleWhatsApp}
+            className="flex-1 py-2 px-3 rounded-xl bg-green-500/15 hover:bg-green-500/25 text-green-300 border border-green-500/30 font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm active:scale-95 cursor-pointer"
+            title={leadPhone ? `WhatsApp ${leadPhone}` : 'No phone number available'}
+          >
+            <MessageCircle className="size-3.5 text-green-400" />
+            <span>WhatsApp</span>
+          </button>
+
+          {/* Optional Direct Video Meeting Link */}
+          {meeting.meeting_link && (
+            <a
+              href={meeting.meeting_link}
+              target="_blank"
+              rel="noreferrer"
+              className="py-2 px-3 rounded-xl bg-white hover:bg-zinc-200 text-black font-semibold text-xs flex items-center justify-center gap-1 transition-all shadow-sm active:scale-95 cursor-pointer"
+              title="Join Video Meeting"
+            >
+              <Video className="size-3.5" />
+              <span>Join</span>
+            </a>
+          )}
+
+          {/* View Lead Details */}
           <Link
             href={`/leads/${meeting.lead_id}`}
-            className="py-2 px-3 rounded-xl bg-[#1c1c22] hover:bg-[#25252c] text-zinc-300 hover:text-white text-xs font-medium transition-colors"
+            className="py-2 px-3 rounded-xl bg-[#1c1c22] hover:bg-[#25252c] text-zinc-300 hover:text-white text-xs font-medium transition-colors shrink-0"
           >
             View Lead
           </Link>

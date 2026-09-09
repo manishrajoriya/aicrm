@@ -23,6 +23,8 @@ import {
   Clock,
   CalendarPlus,
   AlertCircle,
+  PlusCircle,
+  History,
 } from 'lucide-react';
 import Link from 'next/link';
 import { crmService } from '@/services/crmService';
@@ -36,6 +38,8 @@ interface LeadTableProps {
   onDeleteLead: (leadId: string) => Promise<void>;
   onStatusChange: (leadId: string, status: LeadStatus) => Promise<void>;
   onScheduleMeeting?: (lead: Lead) => void;
+  onLogActivity?: (lead: Lead) => void;
+  onViewLogs?: (lead: Lead) => void;
 }
 
 export function LeadTable({
@@ -46,6 +50,8 @@ export function LeadTable({
   onDeleteLead,
   onStatusChange,
   onScheduleMeeting,
+  onLogActivity,
+  onViewLogs,
 }: LeadTableProps) {
   const getStatusPill = (status: LeadStatus) => {
     switch (status) {
@@ -171,12 +177,12 @@ export function LeadTable({
 
                     {/* Pipeline Stage */}
                     <TableCell className="py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-col items-start gap-1">
                         {getStatusPill(lead.status)}
                         <select
                           value={lead.status}
                           onChange={(e) => onStatusChange(lead.id, e.target.value as LeadStatus)}
-                          className="h-6 text-[10px] rounded-full border border-white/10 bg-[#18181c] px-2 text-neutral-400 hover:text-white cursor-pointer outline-none"
+                          className="h-5.5 text-[10px] rounded-full border border-white/10 bg-[#18181c] px-2 text-neutral-400 hover:text-white cursor-pointer outline-none"
                           title="Change pipeline stage"
                         >
                           <option value="New">New</option>
@@ -310,6 +316,26 @@ export function LeadTable({
                           title="WhatsApp Lead (Auto-logs activity)"
                         >
                           <MessageCircle className="size-3" />
+                        </button>
+
+                        {/* Direct Add Log / Activity button */}
+                        <button
+                          type="button"
+                          onClick={() => onLogActivity?.(lead)}
+                          className="size-7 rounded-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 flex items-center justify-center transition-colors"
+                          title="Directly Log Activity / Notes"
+                        >
+                          <PlusCircle className="size-3" />
+                        </button>
+
+                        {/* Direct View All Logs button */}
+                        <button
+                          type="button"
+                          onClick={() => onViewLogs?.(lead)}
+                          className="size-7 rounded-full bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 flex items-center justify-center transition-colors"
+                          title="Quickly View All Activity Logs & History"
+                        >
+                          <History className="size-3" />
                         </button>
 
                         <Button

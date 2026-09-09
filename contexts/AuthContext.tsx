@@ -79,6 +79,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let authSubscription: { unsubscribe: () => void } | null = null;
 
     const initAuth = async () => {
+      // 1. Immediately restore cached profile from localStorage so UI does not flicker or log out prematurely
+      let cachedProfile: AuthProfile | null = null;
+      if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem(AUTH_STORAGE_KEY);
+        if (stored) {
+          try {
+            cachedProfile = JSON.parse(stored);
+            if (cachedProfile && cachedProfile.id) {
+              setProfile(cachedProfile);
+            }
+          } catch {
+            cachedProfile = null;
+          }
+        }
+      }
+
       if (client) {
         try {
           const {
@@ -114,18 +130,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // Check cached profile if no active session
-      if (typeof window !== 'undefined') {
-        const stored = localStorage.getItem(AUTH_STORAGE_KEY);
-        if (stored) {
-          try {
-            setProfile(JSON.parse(stored));
-          } catch {
-            setProfile(null);
-          }
-        } else {
-          setProfile(null);
-        }
+      // If Supabase has no active session, only unset profile if there is no valid cached profile
+      if (!cachedProfile) {
+        setProfile(null);
       }
       setLoading(false);
     };
@@ -136,15 +143,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (client) {
       const { data: listener } = client.auth.onAuthStateChange(
         async (event, session) => {
-          if (event === 'SIGNED_OUT' || !session?.user) {
+          // Only explicit SIGNED_OUT should wipe the active user profile
+          if (event === 'SIGNED_OUT') {
             setProfile(null);
             if (typeof window !== 'undefined') {
               localStorage.removeItem(AUTH_STORAGE_KEY);
             }
           } else if (
-            event === 'SIGNED_IN' ||
-            event === 'TOKEN_REFRESHED' ||
-            event === 'USER_UPDATED'
+            (event === 'SIGNED_IN' ||
+              event === 'TOKEN_REFRESHED' ||
+              event === 'USER_UPDATED' ||
+              event === 'INITIAL_SESSION') &&
+            session?.user
           ) {
             try {
               let { data: memberData } = await client
@@ -180,10 +190,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Protect internal routes if user is not authenticated
+  // Protect internal routes if user is not authenticated,
+  // or redirect directly to dashboard if already authenticated and visiting /login
   useEffect(() => {
-    if (!loading && !profile && pathname !== '/login') {
-      router.push('/login');
+    if (loading) return;
+
+    if (!profile && pathname !== '/login') {
+      router.replace('/login');
+    } else if (profile && pathname === '/login') {
+      router.replace('/');
     }
   }, [loading, profile, pathname, router]);
 

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { ActivityType } from '@/types/crm';
+import { useState, useEffect } from 'react';
+import { ActivityType, Lead } from '@/types/crm';
 import {
   Dialog,
   DialogContent,
@@ -19,8 +19,9 @@ import { PhoneCall, MessageCircle, FileText, Calendar, PlusCircle } from 'lucide
 interface LogActivityDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  leadId: string;
-  leadName: string;
+  leadId?: string;
+  leadName?: string;
+  leads?: Lead[];
   performedBy: string;
   onSave: (activity: {
     lead_id: string;
@@ -37,17 +38,35 @@ export function LogActivityDialog({
   onOpenChange,
   leadId,
   leadName,
+  leads = [],
   performedBy,
   onSave,
 }: LogActivityDialogProps) {
+  const [selectedLeadId, setSelectedLeadId] = useState(leadId || '');
   const [type, setType] = useState<ActivityType>('call');
   const [title, setTitle] = useState('');
-  const [outcome, setOutcome] = useState('Connected');
+  const [outcome, setOutcome] = useState('Connected - Follow up needed');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    if (leadId) {
+      setSelectedLeadId(leadId);
+    } else if (leads.length > 0 && (!selectedLeadId || !leads.some((l) => l.id === selectedLeadId))) {
+      setSelectedLeadId(leads[0].id);
+    }
+  }, [leadId, leads, open]);
+
+  const activeLead = leads.find((l) => l.id === (leadId || selectedLeadId));
+  const activeLeadName = leadName || activeLead?.organization || activeLead?.name || 'School Lead';
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const targetLeadId = leadId || selectedLeadId;
+    if (!targetLeadId) {
+      alert('Please select a school lead to record activity for.');
+      return;
+    }
     if (!title.trim()) {
       alert('Please enter an activity title or summary.');
       return;
@@ -56,7 +75,7 @@ export function LogActivityDialog({
     try {
       setLoading(true);
       await onSave({
-        lead_id: leadId,
+        lead_id: targetLeadId,
         type,
         title,
         outcome: type === 'call' || type === 'meeting' ? outcome : undefined,
@@ -89,11 +108,32 @@ export function LogActivityDialog({
             Log Activity
           </DialogTitle>
           <DialogDescription className="text-neutral-400 text-xs">
-            Record interaction details or follow-up notes for <strong className="text-white">{leadName}</strong>.
+            Record interaction details or follow-up notes for <strong className="text-white">{activeLeadName}</strong>.
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4 py-2">
+          {/* Select School Lead if not already preselected */}
+          {!leadId && leads.length > 0 && (
+            <div className="space-y-1.5">
+              <Label htmlFor="lead-picker" className="text-neutral-300 text-xs font-medium">
+                Select School Lead *
+              </Label>
+              <select
+                id="lead-picker"
+                value={selectedLeadId}
+                onChange={(e) => setSelectedLeadId(e.target.value)}
+                className="w-full h-10 rounded-xl border border-white/8 bg-[#18181c] px-3 text-xs text-white outline-none cursor-pointer"
+                required
+              >
+                {leads.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.organization} • {l.name} {l.phone ? `(${l.phone})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {/* Type Selector Pills */}
           <div className="space-y-1.5">
             <Label className="text-neutral-300 text-xs font-medium">Activity Type</Label>

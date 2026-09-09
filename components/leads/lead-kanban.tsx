@@ -14,6 +14,8 @@ import {
   Calendar,
   Clock,
   CalendarPlus,
+  PlusCircle,
+  History,
 } from 'lucide-react';
 import Link from 'next/link';
 import { crmService } from '@/services/crmService';
@@ -26,6 +28,8 @@ interface LeadKanbanProps {
   onAssignLead: (lead: Lead) => void;
   onStatusChange: (leadId: string, status: LeadStatus) => Promise<void>;
   onScheduleMeeting?: (lead: Lead) => void;
+  onLogActivity?: (lead: Lead) => void;
+  onViewLogs?: (lead: Lead) => void;
 }
 
 const STAGES: { id: LeadStatus; label: string }[] = [
@@ -34,7 +38,7 @@ const STAGES: { id: LeadStatus; label: string }[] = [
   { id: 'In Progress', label: 'In Progress' },
   { id: 'Proposal Sent', label: 'Proposal Sent' },
   { id: 'Won', label: 'Won / Signed' },
-  { id: 'Lost', label: 'Closed / Lost' },
+  { id: 'Lost', label: 'Lost / Closed' },
 ];
 
 export function LeadKanban({
@@ -44,6 +48,8 @@ export function LeadKanban({
   onAssignLead,
   onStatusChange,
   onScheduleMeeting,
+  onLogActivity,
+  onViewLogs,
 }: LeadKanbanProps) {
   const getNextStage = (current: LeadStatus): LeadStatus | null => {
     const order: LeadStatus[] = ['New', 'Contacted', 'In Progress', 'Proposal Sent', 'Won'];
@@ -166,6 +172,26 @@ export function LeadKanban({
                             title="WhatsApp Lead"
                           >
                             <MessageCircle className="size-2.5" />
+                          </button>
+
+                          {/* Quick Add Log */}
+                          <button
+                            type="button"
+                            onClick={() => onLogActivity?.(lead)}
+                            className="size-6 rounded-full bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/20 flex items-center justify-center transition-colors"
+                            title="Directly Log Activity"
+                          >
+                            <PlusCircle className="size-2.5" />
+                          </button>
+
+                          {/* Quick View All Logs */}
+                          <button
+                            type="button"
+                            onClick={() => onViewLogs?.(lead)}
+                            className="size-6 rounded-full bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 flex items-center justify-center transition-colors"
+                            title="Quickly View All Logs"
+                          >
+                            <History className="size-2.5" />
                           </button>
 
                           <button
