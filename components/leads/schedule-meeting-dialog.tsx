@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Lead } from '@/types/crm';
 import { crmService } from '@/services/crmService';
 import { useAuth } from '@/contexts/AuthContext';
-import { Calendar, Clock, Video, Building2, Bell } from 'lucide-react';
+import { Calendar, Clock, Video, Building2, Bell, AlertCircle, Search } from 'lucide-react';
 
 interface ScheduleMeetingDialogProps {
   open: boolean;
@@ -35,6 +35,7 @@ export function ScheduleMeetingDialog({
 }: ScheduleMeetingDialogProps) {
   const { profile } = useAuth();
   const [selectedLeadId, setSelectedLeadId] = useState<string>('');
+  const [leadSearchText, setLeadSearchText] = useState('');
   const [title, setTitle] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('11:00');
@@ -42,30 +43,55 @@ export function ScheduleMeetingDialog({
   const [meetingLink, setMeetingLink] = useState('');
   const [minutesBefore, setMinutesBefore] = useState('10');
   const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   useEffect(() => {
     if (open) {
-      if (preselectedLeadId) {
-        setSelectedLeadId(preselectedLeadId);
-      } else if (leads.length > 0 && (!selectedLeadId || !leads.some((l) => l.id === selectedLeadId))) {
-        setSelectedLeadId(leads[0].id);
-      }
+      setErrorMsg('');
+      setLeadSearchText('');
+      const targetId = preselectedLeadId || selectedLeadId || (leads.length > 0 ? leads[0].id : '');
+      setSelectedLeadId(targetId);
 
-      // Default to tomorrow at 11:00
-      const tomorrow = new Date();
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      const yyyy = tomorrow.getFullYear();
-      const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
-      const dd = String(tomorrow.getDate()).padStart(2, '0');
-      setDate(`${yyyy}-${mm}-${dd}`);
-      setTime('11:00');
-      setTitle('ERP Live Demo');
-      setMeetingLink('');
+      const targetLead = leads.find((l) => l.id === targetId);
+      if (targetLead?.next_meeting?.scheduled_at) {
+        const meetingDate = new Date(targetLead.next_meeting.scheduled_at);
+        if (!isNaN(meetingDate.getTime())) {
+          const yyyy = meetingDate.getFullYear();
+          const mm = String(meetingDate.getMonth() + 1).padStart(2, '0');
+          const dd = String(meetingDate.getDate()).padStart(2, '0');
+          setDate(`${yyyy}-${mm}-${dd}`);
+          const hh = String(meetingDate.getHours()).padStart(2, '0');
+          const min = String(meetingDate.getMinutes()).padStart(2, '0');
+          setTime(`${hh}:${min}`);
+          setTitle(targetLead.next_meeting.title || 'ERP Live Demo');
+          setMeetingLink(targetLead.next_meeting.meeting_link || '');
+        }
+      } else {
+        // Default to tomorrow at 11:00
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const yyyy = tomorrow.getFullYear();
+        const mm = String(tomorrow.getMonth() + 1).padStart(2, '0');
+        const dd = String(tomorrow.getDate()).padStart(2, '0');
+        setDate(`${yyyy}-${mm}-${dd}`);
+        setTime('11:00');
+        setTitle('ERP Live Demo');
+        setMeetingLink('');
+      }
       setMinutesBefore('10');
     }
   }, [open, preselectedLeadId, leads]);
 
   const selectedLead = leads.find((l) => l.id === selectedLeadId);
+
+  // Filtered leads for select dropdown when not preselected
+  const selectableLeads = useMemo(() => {
+    if (!leadSearchText.trim()) return leads.slice(0, 60);
+    const q = leadSearchText.toLowerCase().trim();
+    return leads
+      .filter((l) => l.organization.toLowerCase().includes(q) || l.name.toLowerCase().includes(q))
+      .slice(0, 60);
+  }, [leads, leadSearchText]);
 
   // Quick Time Presets
   const setQuickTime = (type: 'today_afternoon' | 'tomorrow_morning' | 'in_2_days') => {
@@ -99,16 +125,20 @@ export function ScheduleMeetingDialog({
 
     try {
       setSubmitting(true);
+      setErrorMsg('');
       const scheduledDateTime = new Date(`${date}T${time}:00`).toISOString();
 
-      const activity = await crmService.scheduleMeeting({
-        lead_id: selectedLeadId,
-        title: title || 'Quick Meeting Reminder',
-        scheduled_at: scheduledDateTime,
-        meeting_link: meetingLink.trim() ? meetingLink.trim() : undefined,
-        description: `${platform} meeting reminder.`,
-        performed_by: profile?.name || 'Staff',
-      });
+      await crmService.scheduleMeeting(
+        {
+          lead_id: selectedLeadId,
+          title: title || 'Quick Meeting Reminder',
+          scheduled_at: scheduledDateTime,
+          meeting_link: meetingLink.trim() ? meetingLink.trim() : undefined,
+          description: `${platform} meeting reminder.`,
+          performed_by: profile?.name || 'Staff',
+        },
+        profile?.owner_id
+      );
 
       // Schedule background Push Notification
       try {
@@ -130,14 +160,20 @@ export function ScheduleMeetingDialog({
         console.warn('Could not schedule push notification:', pushErr);
       }
 
+      // Auto-advance lead status to In Progress if currently New or Contacted
       if (selectedLead && (selectedLead.status === 'New' || selectedLead.status === 'Contacted')) {
-        await crmService.updateLeadStatus(selectedLeadId, 'In Progress');
+        try {
+          await crmService.updateLeadStatus(selectedLeadId, 'In Progress', profile?.owner_id);
+        } catch (statusErr) {
+          console.warn('Could not advance lead stage automatically:', statusErr);
+        }
       }
 
       onOpenChange(false);
       if (onMeetingScheduled) onMeetingScheduled();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to schedule meeting:', err);
+      setErrorMsg(err?.message || 'Failed to schedule meeting. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -155,6 +191,13 @@ export function ScheduleMeetingDialog({
           </DialogTitle>
         </DialogHeader>
 
+        {errorMsg && (
+          <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs flex items-center gap-2">
+            <AlertCircle className="size-3.5 shrink-0 text-red-400" />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-3.5">
           {/* Target School / Lead */}
           <div className="space-y-1">
@@ -166,20 +209,33 @@ export function ScheduleMeetingDialog({
                 <span className="text-zinc-400 font-normal text-[11px]">({selectedLead.name})</span>
               </div>
             ) : (
-              <Select value={selectedLeadId} onValueChange={(val) => val && setSelectedLeadId(val)} required>
-                <SelectTrigger className="bg-[#18181c] border-white/10 rounded-xl h-9 text-white text-xs">
-                  <SelectValue placeholder="Select target school">
-                    {selectedLead ? `${selectedLead.organization} (${selectedLead.name})` : 'Select target school'}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent className="bg-[#18181c] border-white/10 text-white rounded-xl max-h-48">
-                  {leads.map((l) => (
-                    <SelectItem key={l.id} value={l.id} className="text-xs py-1.5">
-                      {l.organization} - {l.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="space-y-1.5">
+                {leads.length > 10 && (
+                  <div className="relative">
+                    <Search className="size-3 absolute left-2.5 top-2.5 text-neutral-500 pointer-events-none" />
+                    <Input
+                      value={leadSearchText}
+                      onChange={(e) => setLeadSearchText(e.target.value)}
+                      placeholder="Search school name..."
+                      className="bg-[#18181c] border-white/10 rounded-xl h-8 pl-8 text-white text-xs"
+                    />
+                  </div>
+                )}
+                <Select value={selectedLeadId} onValueChange={(val) => val && setSelectedLeadId(val)} required>
+                  <SelectTrigger className="bg-[#18181c] border-white/10 rounded-xl h-9 text-white text-xs">
+                    <SelectValue placeholder="Select target school">
+                      {selectedLead ? `${selectedLead.organization} (${selectedLead.name})` : 'Select target school'}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#18181c] border-white/10 text-white rounded-xl max-h-48">
+                    {selectableLeads.map((l) => (
+                      <SelectItem key={l.id} value={l.id} className="text-xs py-1.5">
+                        {l.organization} - {l.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             )}
           </div>
 

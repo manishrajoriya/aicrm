@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect, useMemo } from 'react';
 import { Lead, TeamMember, LeadStatus } from '@/types/crm';
 import {
   Table,
@@ -25,6 +26,8 @@ import {
   AlertCircle,
   PlusCircle,
   History,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import Link from 'next/link';
 import { crmService } from '@/services/crmService';
@@ -53,6 +56,23 @@ export function LeadTable({
   onLogActivity,
   onViewLogs,
 }: LeadTableProps) {
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
+
+  // Reset to page 1 whenever leads list changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [leads.length]);
+
+  const totalPages = pageSize === 0 ? 1 : Math.ceil(leads.length / pageSize) || 1;
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+  const paginatedLeads = useMemo(() => {
+    if (pageSize === 0) return leads;
+    const startIndex = (safeCurrentPage - 1) * pageSize;
+    return leads.slice(startIndex, startIndex + pageSize);
+  }, [leads, safeCurrentPage, pageSize]);
+
   const getStatusPill = (status: LeadStatus) => {
     switch (status) {
       case 'New':
@@ -126,7 +146,7 @@ export function LeadTable({
                 </TableCell>
               </TableRow>
             ) : (
-              leads.map((lead) => {
+              paginatedLeads.map((lead) => {
                 const assigned =
                   lead.assigned_member ||
                   teamMembers.find((m) => m.id === lead.assigned_to);
@@ -370,6 +390,73 @@ export function LeadTable({
           </TableBody>
         </Table>
       </div>
+
+      {/* Pagination Bar */}
+      {leads.length > 0 && (
+        <div className="p-4 bg-[#16161a] border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-neutral-400">
+          <div className="flex items-center gap-3">
+            <span>
+              Showing{' '}
+              <strong className="text-white">
+                {pageSize === 0 ? 1 : (safeCurrentPage - 1) * pageSize + 1}
+              </strong>{' '}
+              to{' '}
+              <strong className="text-white">
+                {pageSize === 0 ? leads.length : Math.min(safeCurrentPage * pageSize, leads.length)}
+              </strong>{' '}
+              of <strong className="text-white">{leads.length.toLocaleString('en-IN')}</strong> leads
+            </span>
+
+            <div className="flex items-center gap-1.5 pl-2 border-l border-white/10">
+              <span className="text-[11px] text-neutral-500">Rows:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="bg-[#1c1c22] border border-white/10 rounded-lg px-2 py-1 text-white text-[11px] cursor-pointer outline-none hover:border-white/20"
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={0}>All ({leads.length})</option>
+              </select>
+            </div>
+          </div>
+
+          {pageSize > 0 && totalPages > 1 && (
+            <div className="flex items-center gap-1.5 self-end sm:self-auto">
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={safeCurrentPage <= 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                className="rounded-lg border-white/10 bg-[#1e1e24] hover:bg-[#282830] text-neutral-300 disabled:opacity-30 disabled:pointer-events-none h-7 px-2.5 text-xs gap-1"
+              >
+                <ChevronLeft className="size-3.5" />
+                <span>Prev</span>
+              </Button>
+
+              <div className="px-2 text-xs font-semibold text-neutral-300">
+                Page <span className="text-white">{safeCurrentPage}</span> of{' '}
+                <span className="text-white">{totalPages}</span>
+              </div>
+
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={safeCurrentPage >= totalPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                className="rounded-lg border-white/10 bg-[#1e1e24] hover:bg-[#282830] text-neutral-300 disabled:opacity-30 disabled:pointer-events-none h-7 px-2.5 text-xs gap-1"
+              >
+                <span>Next</span>
+                <ChevronRight className="size-3.5" />
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

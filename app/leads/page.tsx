@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { crmService } from '@/services/crmService';
 import { Lead, TeamMember, LeadStatus } from '@/types/crm';
+import { useLeads, useTeamMembers, useInvalidateCRM } from '@/hooks/useCRMQueries';
 import { Button } from '@/components/ui/button';
 import { LeadTable } from '@/components/leads/lead-table';
 import { LeadKanban } from '@/components/leads/lead-kanban';
@@ -33,9 +34,25 @@ const DEFAULT_FILTERS: LeadFiltersState = {
 
 export default function LeadsPage() {
   const { profile } = useAuth();
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [loading, setLoading] = useState(true);
+  const ownerId = profile?.owner_id;
+
+  // TanStack React Query cached hooks - instant load across page transitions
+  const {
+    data: leads = [],
+    isLoading: leadsLoading,
+    isFetching: leadsFetching,
+    refetch: refetchLeads,
+  } = useLeads(ownerId);
+
+  const {
+    data: teamMembers = [],
+    isLoading: teamLoading,
+    refetch: refetchTeams,
+  } = useTeamMembers(ownerId);
+
+  const { invalidateLeads } = useInvalidateCRM();
+
+  const loading = leadsLoading || teamLoading;
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
   const [filterMyLeadsOnly, setFilterMyLeadsOnly] = useState(false);
   const [filters, setFilters] = useState<LeadFiltersState>(DEFAULT_FILTERS);
@@ -51,58 +68,37 @@ export default function LeadsPage() {
   const [leadForLog, setLeadForLog] = useState<Lead | null>(null);
   const [leadForViewLogs, setLeadForViewLogs] = useState<Lead | null>(null);
 
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const ownerId = profile?.owner_id;
-      const [fetchedLeads, fetchedTeams] = await Promise.all([
-        crmService.getLeads(ownerId),
-        crmService.getTeamMembers(ownerId),
-      ]);
-      setLeads(fetchedLeads);
-      setTeamMembers(fetchedTeams);
-    } catch (err) {
-      console.error('Failed to load leads:', err);
-    } finally {
-      setLoading(false);
-    }
+  const handleRefresh = async () => {
+    await Promise.all([refetchLeads(), refetchTeams()]);
   };
 
-  useEffect(() => {
-    if (profile) {
-      loadData();
-    }
-  }, [profile?.owner_id]);
-
   const handleSaveLead = async (formData: any) => {
-    const ownerId = profile?.owner_id;
     if (selectedLead) {
       await crmService.updateLead(selectedLead.id, formData, ownerId);
     } else {
       await crmService.createLead(formData, ownerId);
     }
-    await loadData();
+    await invalidateLeads(ownerId);
   };
 
   const handleBulkImportLeads = async (newLeads: any[]) => {
-    const ownerId = profile?.owner_id;
     await crmService.createMultipleLeads(newLeads, ownerId);
-    await loadData();
+    await invalidateLeads(ownerId);
   };
 
   const handleAssign = async (leadId: string, memberId: string | null) => {
-    await crmService.assignLead(leadId, memberId, profile?.owner_id);
-    await loadData();
+    await crmService.assignLead(leadId, memberId, ownerId);
+    await invalidateLeads(ownerId);
   };
 
   const handleStatusChange = async (leadId: string, status: LeadStatus) => {
-    await crmService.updateLeadStatus(leadId, status, profile?.owner_id);
-    await loadData();
+    await crmService.updateLeadStatus(leadId, status, ownerId);
+    await invalidateLeads(ownerId);
   };
 
   const handleDeleteLead = async (leadId: string) => {
-    await crmService.deleteLead(leadId, profile?.owner_id);
-    await loadData();
+    await crmService.deleteLead(leadId, ownerId);
+    await invalidateLeads(ownerId);
   };
 
   // Base scope: My Leads vs All Leads
@@ -248,8 +244,8 @@ export default function LeadsPage() {
   };
 
   const handleSaveActivity = async (activityData: any) => {
-    await crmService.createActivity(activityData, profile?.owner_id);
-    await loadData();
+    await crmService.createActivity(activityData, ownerId);
+    await invalidateLeads(ownerId);
   };
 
   return (
@@ -330,11 +326,11 @@ export default function LeadsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={loadData}
+            onClick={handleRefresh}
             title="Refresh Leads"
             className="rounded-full size-9 p-0 border-white/10"
           >
-            <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`size-3.5 ${leadsFetching ? 'animate-spin' : ''}`} />
           </Button>
 
           <Button
@@ -456,7 +452,7 @@ export default function LeadsPage() {
         }}
         leads={leads}
         preselectedLeadId={selectedLead?.id}
-        onMeetingScheduled={loadData}
+        onMeetingScheduled={() => invalidateLeads(ownerId)}
       />
 
       <LogActivityDialog

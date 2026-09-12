@@ -1,33 +1,36 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { crmService } from '@/services/crmService';
-import { ScheduledMeetingItem, Lead } from '@/types/crm';
+import { ScheduledMeetingItem } from '@/types/crm';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { usePushNotification } from '@/hooks/usePushNotification';
+import { useUpcomingMeetings, useInvalidateCRM } from '@/hooks/useCRMQueries';
 import {
+  Bell,
   BellRing,
+  Calendar,
   Clock,
   CheckCircle2,
+  AlertCircle,
   AlertTriangle,
+  Video,
   Phone,
   MessageCircle,
-  Video,
   ExternalLink,
-  Calendar,
-  Building2,
   Search,
   Filter,
   RefreshCw,
   Sparkles,
-  ArrowRight,
-  ShieldAlert,
+  Building2,
+  UserCheck,
+  CheckCheck,
   Check,
   X,
-  Bell,
-  CheckCheck,
+  ShieldAlert,
+  ArrowRight,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -35,30 +38,18 @@ export default function NotificationsHistoryPage() {
   const { profile } = useAuth();
   const { isSupported, permission, requestPermission } = usePushNotification();
 
-  const [notifications, setNotifications] = useState<ScheduledMeetingItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const ownerId = profile?.is_owner ? undefined : profile?.id;
+  const {
+    data: notifications = [],
+    isLoading: loading,
+    isFetching,
+    refetch: loadNotifications,
+  } = useUpcomingMeetings(ownerId);
+  const { invalidateMeetings } = useInvalidateCRM();
+
   const [activeFilter, setActiveFilter] = useState<'all' | 'needs_action' | 'upcoming' | 'completed'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
-
-  const loadNotifications = async () => {
-    try {
-      setLoading(true);
-      const ownerId = profile?.is_owner ? undefined : profile?.id;
-      const data = await crmService.getUpcomingMeetings(ownerId);
-      setNotifications(data || []);
-    } catch (err) {
-      console.error('Failed to load notification history:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (profile) {
-      loadNotifications();
-    }
-  }, [profile?.id, profile?.is_owner]);
 
   // Mark a meeting notification as completed
   const handleMarkComplete = async (meetingId: string) => {
@@ -67,7 +58,7 @@ export default function NotificationsHistoryPage() {
       await crmService.updateActivity(meetingId, {
         outcome: 'Completed',
       }, profile?.owner_id);
-      await loadNotifications();
+      await invalidateMeetings();
     } catch (err) {
       console.error('Failed to mark notification as completed:', err);
     } finally {
@@ -228,11 +219,11 @@ export default function NotificationsHistoryPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={loadNotifications}
+            onClick={() => loadNotifications()}
             title="Refresh"
             className="rounded-full size-9 p-0 border-white/10 hover:bg-white/10"
           >
-            <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`size-3.5 ${isFetching ? 'animate-spin' : ''}`} />
           </Button>
 
           <Link href="/leads">

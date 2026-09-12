@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { crmService } from '@/services/crmService';
 import { Lead, TeamMember, CRMStats, LeadStatus, ScheduledMeetingItem } from '@/types/crm';
+import { useLeads, useTeamMembers, useUpcomingMeetings, useCRMStats, useInvalidateCRM } from '@/hooks/useCRMQueries';
 import { Button } from '@/components/ui/button';
 import { LeadDialog } from '@/components/leads/lead-dialog';
 import { AssignDialog } from '@/components/leads/assign-dialog';
@@ -26,6 +27,7 @@ import {
   Calendar,
   Video,
   MessageCircle,
+  ShieldCheck,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -33,7 +35,21 @@ import { useAuth } from '@/contexts/AuthContext';
 
 export default function DashboardPage() {
   const { profile, isOwner } = useAuth();
-  const [stats, setStats] = useState<CRMStats>({
+  const ownerId = profile?.owner_id;
+
+  // React Query cached hooks - shared across all pages
+  const { data: leads = [], isLoading: leadsLoading } = useLeads(ownerId);
+  const { data: teamMembers = [], isLoading: teamsLoading } = useTeamMembers(ownerId);
+  const { data: upcomingMeetings = [], isLoading: meetingsLoading } = useUpcomingMeetings(ownerId);
+  const { data: statsData, isLoading: statsLoading } = useCRMStats(
+    ownerId,
+    leads.length > 0 ? leads : undefined
+  );
+  const { invalidateAll, invalidateLeads, invalidateTeamMembers } = useInvalidateCRM();
+
+  const loading = leadsLoading || teamsLoading || statsLoading;
+
+  const stats: CRMStats = statsData || {
     totalLeads: 0,
     newLeads: 0,
     inProgressLeads: 0,
@@ -41,11 +57,7 @@ export default function DashboardPage() {
     unassignedLeads: 0,
     pipelineValue: 0,
     conversionRate: 0,
-  });
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [upcomingMeetings, setUpcomingMeetings] = useState<ScheduledMeetingItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  };
 
   // Dialog states
   const [leadDialogOpen, setLeadDialogOpen] = useState(false);
@@ -54,51 +66,23 @@ export default function DashboardPage() {
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
 
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const ownerId = profile?.owner_id;
-      const [fetchedLeads, fetchedTeams, fetchedStats, fetchedMeetings] = await Promise.all([
-        crmService.getLeads(ownerId),
-        crmService.getTeamMembers(ownerId),
-        crmService.getCRMStats(ownerId),
-        crmService.getUpcomingMeetings(ownerId),
-      ]);
-      setLeads(fetchedLeads);
-      setTeamMembers(fetchedTeams);
-      setStats(fetchedStats);
-      setUpcomingMeetings(fetchedMeetings);
-    } catch (err) {
-      console.error('Failed to load CRM data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (profile) {
-      loadData();
-    }
-  }, [profile?.owner_id]);
-
   const handleSaveLead = async (formData: any) => {
-    const ownerId = profile?.owner_id;
     if (selectedLead) {
       await crmService.updateLead(selectedLead.id, formData, ownerId);
     } else {
       await crmService.createLead(formData, ownerId);
     }
-    await loadData();
+    await invalidateLeads(ownerId);
   };
 
   const handleAssignLead = async (leadId: string, memberId: string | null) => {
-    await crmService.assignLead(leadId, memberId, profile?.owner_id);
-    await loadData();
+    await crmService.assignLead(leadId, memberId, ownerId);
+    await invalidateLeads(ownerId);
   };
 
   const handleSaveMember = async (formData: any) => {
-    await crmService.createTeamMember(formData, profile?.owner_id);
-    await loadData();
+    await crmService.createTeamMember(formData, ownerId);
+    await invalidateTeamMembers();
   };
 
   const unassignedLeads = leads.filter((l) => !l.assigned_to);
@@ -259,7 +243,7 @@ export default function DashboardPage() {
       {/* Upcoming Meetings & Demos Card */}
       <UpcomingMeetings
         meetings={upcomingMeetings}
-        onRefresh={loadData}
+        onRefresh={() => invalidateAll()}
         onOpenSchedule={() => setScheduleDialogOpen(true)}
       />
 
@@ -526,7 +510,7 @@ export default function DashboardPage() {
         open={scheduleDialogOpen}
         onOpenChange={setScheduleDialogOpen}
         leads={leads}
-        onMeetingScheduled={loadData}
+        onMeetingScheduled={() => invalidateLeads(ownerId)}
       />
     </div>
   );

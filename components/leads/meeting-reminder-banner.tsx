@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { crmService } from '@/services/crmService';
 import { ScheduledMeetingItem } from '@/types/crm';
 import { useAuth } from '@/contexts/AuthContext';
+import { useUpcomingMeetings } from '@/hooks/useCRMQueries';
 import { Video, Clock, X, ExternalLink, BellRing, Sparkles, Phone, MessageCircle } from 'lucide-react';
 import Link from 'next/link';
 
@@ -42,6 +43,9 @@ function playGentleChime() {
 
 export function MeetingReminderBanner() {
   const { profile } = useAuth();
+  const ownerScope = profile?.is_owner ? undefined : profile?.id;
+  const { data: meetings = [] } = useUpcomingMeetings(ownerScope, { refetchInterval: 30000 });
+
   const [activeAlert, setActiveAlert] = useState<{
     meeting: ScheduledMeetingItem;
     minutesLeft: number;
@@ -50,56 +54,37 @@ export function MeetingReminderBanner() {
   const playedChimesRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    let isMounted = true;
+    if (!meetings || meetings.length === 0) {
+      setActiveAlert(null);
+      return;
+    }
 
-    const checkUpcoming = async () => {
-      try {
-        const meetings = await crmService.getUpcomingMeetings(profile?.is_owner ? undefined : profile?.id);
-        if (!isMounted || !meetings || meetings.length === 0) {
-          if (isMounted) setActiveAlert(null);
-          return;
+    const now = Date.now();
+    let imminentMeeting: { meeting: ScheduledMeetingItem; minutesLeft: number } | null = null;
+
+    for (const m of meetings) {
+      if (!m.scheduled_at) continue;
+      if (dismissedIds.includes(m.id)) continue;
+
+      const meetingTime = new Date(m.scheduled_at).getTime();
+      const diffMs = meetingTime - now;
+      const diffMinutes = Math.round(diffMs / (60 * 1000));
+
+      // Alert if meeting is within 15 minutes or started less than 5 minutes ago
+      if (diffMinutes <= 15 && diffMinutes >= -5) {
+        imminentMeeting = { meeting: m, minutesLeft: diffMinutes };
+
+        // Play chime once when entering notification threshold
+        if (!playedChimesRef.current.has(m.id)) {
+          playedChimesRef.current.add(m.id);
+          playGentleChime();
         }
-
-        const now = Date.now();
-        let imminentMeeting: { meeting: ScheduledMeetingItem; minutesLeft: number } | null = null;
-
-        for (const m of meetings) {
-          if (!m.scheduled_at) continue;
-          if (dismissedIds.includes(m.id)) continue;
-
-          const meetingTime = new Date(m.scheduled_at).getTime();
-          const diffMs = meetingTime - now;
-          const diffMinutes = Math.round(diffMs / (60 * 1000));
-
-          // Alert if meeting is within 15 minutes or started less than 5 minutes ago
-          if (diffMinutes <= 15 && diffMinutes >= -5) {
-            imminentMeeting = { meeting: m, minutesLeft: diffMinutes };
-
-            // Play chime once when entering notification threshold
-            if (!playedChimesRef.current.has(m.id)) {
-              playedChimesRef.current.add(m.id);
-              playGentleChime();
-            }
-            break;
-          }
-        }
-
-        if (isMounted) {
-          setActiveAlert(imminentMeeting);
-        }
-      } catch (err) {
-        // Silently catch background polling errors
+        break;
       }
-    };
+    }
 
-    checkUpcoming();
-    const interval = setInterval(checkUpcoming, 20000); // Check every 20 seconds
-
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [profile?.id, profile?.is_owner, dismissedIds]);
+    setActiveAlert(imminentMeeting);
+  }, [meetings, dismissedIds]);
 
   if (!activeAlert) return null;
 

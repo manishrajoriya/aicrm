@@ -328,13 +328,42 @@ export const crmService = {
 
   attachNextMeetings(leads: Lead[], activities: LeadActivity[]): Lead[] {
     const meetingMap = new Map<string, LeadActivity>();
-    const sortedMeetings = activities
-      .filter((a) => a.type === 'meeting' && a.scheduled_at && a.outcome !== 'Completed' && a.outcome !== 'Cancelled')
-      .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
+    const now = Date.now();
 
-    for (const meeting of sortedMeetings) {
-      if (!meetingMap.has(meeting.lead_id)) {
-        meetingMap.set(meeting.lead_id, meeting);
+    const validMeetings = activities.filter(
+      (a) =>
+        a.type === 'meeting' &&
+        a.scheduled_at &&
+        a.outcome !== 'Completed' &&
+        a.outcome !== 'Cancelled' &&
+        a.outcome !== 'Rescheduled'
+    );
+
+    // Group meetings by lead_id
+    const meetingsByLead = new Map<string, LeadActivity[]>();
+    for (const m of validMeetings) {
+      const list = meetingsByLead.get(m.lead_id) || [];
+      list.push(m);
+      meetingsByLead.set(m.lead_id, list);
+    }
+
+    // For each lead, pick the most relevant meeting:
+    // 1) Earliest upcoming meeting (scheduled_at >= now)
+    // 2) Or if all are past/overdue, the latest overdue meeting
+    for (const [leadId, list] of meetingsByLead.entries()) {
+      const upcoming = list
+        .filter((m) => new Date(m.scheduled_at!).getTime() >= now)
+        .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
+
+      if (upcoming.length > 0) {
+        meetingMap.set(leadId, upcoming[0]);
+      } else {
+        const past = list.sort(
+          (a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime()
+        );
+        if (past.length > 0) {
+          meetingMap.set(leadId, past[0]);
+        }
       }
     }
 
@@ -395,18 +424,24 @@ export const crmService = {
         return [];
       }
 
-      const leadIds = leadsList.map((l) => l.id);
+      const leadIdSet = new Set(leadsList.map((l) => l.id));
 
-      const { data: activitiesData } = await client
+      const { data: activitiesData, error: actError } = await client
         .from('lead_activities')
         .select('*')
-        .in('lead_id', leadIds)
         .eq('type', 'meeting')
         .not('scheduled_at', 'is', null)
         .neq('outcome', 'Completed')
+        .neq('outcome', 'Cancelled')
+        .neq('outcome', 'Rescheduled')
         .order('scheduled_at', { ascending: true });
 
-      return this.attachNextMeetings(leadsList, activitiesData || []);
+      if (actError) {
+        console.error('Error fetching meeting activities:', actError);
+      }
+
+      const relevantActivities = (activitiesData || []).filter((a) => leadIdSet.has(a.lead_id));
+      return this.attachNextMeetings(leadsList, relevantActivities);
     }
 
     const localLeads = this.getLocalLeadsWithAssignees(ownerId);
@@ -705,6 +740,25 @@ export const crmService = {
     },
     ownerId?: string
   ): Promise<LeadActivity> {
+    const client = getSupabaseClient();
+    if (client) {
+      // Mark prior pending meetings for this specific lead as Rescheduled to prevent duplicate stale meetings
+      await client
+        .from('lead_activities')
+        .update({ outcome: 'Rescheduled' })
+        .eq('lead_id', params.lead_id)
+        .eq('type', 'meeting')
+        .eq('outcome', 'Scheduled');
+    } else {
+      const all = getLocalActivities(ownerId);
+      all.forEach((a) => {
+        if (a.lead_id === params.lead_id && a.type === 'meeting' && a.outcome === 'Scheduled') {
+          a.outcome = 'Rescheduled';
+        }
+      });
+      saveLocalActivities(all, ownerId);
+    }
+
     return this.createActivity(
       {
         lead_id: params.lead_id,
@@ -721,37 +775,49 @@ export const crmService = {
   },
 
   async getUpcomingMeetings(ownerId?: string): Promise<ScheduledMeetingItem[]> {
-    const leads = await this.getLeads(ownerId);
-    const leadMap = new Map(leads.map((l) => [l.id, l]));
-
-    if (leads.length === 0) {
-      return [];
-    }
-
-    const leadIds = leads.map((l) => l.id);
     const client = getSupabaseClient();
 
     if (client) {
-      const { data, error } = await client
+      let query = client
         .from('lead_activities')
-        .select('*')
-        .in('lead_id', leadIds)
+        .select('*, lead:leads(*)')
         .eq('type', 'meeting')
         .not('scheduled_at', 'is', null)
+        .neq('outcome', 'Completed')
+        .neq('outcome', 'Cancelled')
+        .neq('outcome', 'Rescheduled')
         .order('scheduled_at', { ascending: true });
 
+      const { data, error } = await query;
       if (!error && data) {
-        return data.map((act) => ({
-          ...act,
-          lead: leadMap.get(act.lead_id),
-        }));
+        return (data as any[])
+          .filter((act) => {
+            if (!act.lead) return false;
+            if (ownerId && supportsOwnerIdInDb !== false) {
+              return act.lead.owner_id === ownerId;
+            }
+            return true;
+          });
+      }
+      if (error) {
+        console.error('Error fetching upcoming meetings from Supabase:', error);
       }
     }
 
     // Local fallback
+    const leads = getLocalLeads(ownerId);
+    const leadMap = new Map(leads.map((l) => [l.id, l]));
     const all = getLocalActivities(ownerId);
     return all
-      .filter((a) => a.type === 'meeting' && a.scheduled_at && leadMap.has(a.lead_id))
+      .filter(
+        (a) =>
+          a.type === 'meeting' &&
+          a.scheduled_at &&
+          a.outcome !== 'Completed' &&
+          a.outcome !== 'Cancelled' &&
+          a.outcome !== 'Rescheduled' &&
+          leadMap.has(a.lead_id)
+      )
       .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())
       .map((act) => ({
         ...act,
@@ -762,8 +828,8 @@ export const crmService = {
   // -------------------------------------------------------------
   // DASHBOARD STATS (Scoped to Owner Workspace)
   // -------------------------------------------------------------
-  async getCRMStats(ownerId?: string): Promise<CRMStats> {
-    const leads = await this.getLeads(ownerId);
+  async getCRMStats(ownerId?: string, cachedLeads?: Lead[]): Promise<CRMStats> {
+    const leads = cachedLeads || (await this.getLeads(ownerId));
     const totalLeads = leads.length;
     const newLeads = leads.filter((l) => l.status === 'New').length;
     const inProgressLeads = leads.filter(
